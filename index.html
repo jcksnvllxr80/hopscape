@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Hopscape 🌈</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌈</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="bg">
+  <div class="sun"></div>
+  <div class="bgcloud c1"></div>
+  <div class="bgcloud c2" style="--s:0.65"></div>
+  <div class="bgcloud c3" style="--s:0.8"></div>
+</div>
+
+<div id="stage">
+  <canvas id="game" width="704" height="960"></canvas>
+
+  <div id="hud" class="hidden">
+    <div id="score">0</div>
+    <div id="hud-right">
+      <div id="coins"><span class="coin-dot"></span><span id="coin-count">0</span></div>
+      <div class="hud-btns">
+        <button id="btn-mute" class="round-btn" title="Sound on/off">🔊</button>
+        <button id="btn-pause" class="round-btn" title="Pause">⏸</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <button id="btn-mute-menu" class="round-btn menu-mute" title="Sound on/off">🔊</button>
+      <h1 class="logo">HOPSCAPE</h1>
+      <p class="tagline">Hop the rainbows 🌈 Dodge the rain ⛈️ Grab the coins 🪙</p>
+      <div id="cards"></div>
+      <button id="btn-play" class="big-btn">▶ Play</button>
+      <p class="help">Arrow keys / WASD / swipe to hop &nbsp;•&nbsp; watch out for grumpy clouds!</p>
+      <p class="stats">🏆 Best <b id="menu-best">0</b> &nbsp;·&nbsp; 🪙 <b id="menu-coins">0</b></p>
+    </div>
+  </div>
+
+  <div id="gameover" class="overlay hidden">
+    <div class="panel">
+      <h2 id="go-title">Oh no!</h2>
+      <p id="go-reason"></p>
+      <div class="go-score-wrap">
+        <span id="go-score">0</span>
+        <span id="go-best-badge" class="badge hidden">NEW BEST!</span>
+      </div>
+      <p class="go-line">🏆 Best <b id="go-best">0</b> &nbsp;·&nbsp; 🪙 +<b id="go-coins">0</b></p>
+      <button id="btn-retry" class="big-btn">🔁 Hop Again</button>
+      <br>
+      <button id="btn-menu" class="small-btn">Switch Animal</button>
+    </div>
+  </div>
+
+  <div id="paused" class="overlay hidden">
+    <div class="panel">
+      <h2>Paused ☕</h2>
+      <br>
+      <button id="btn-resume" class="big-btn">▶ Resume</button>
+      <br>
+      <button id="btn-quit" class="small-btn">Quit to Menu</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/sfx.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/world.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
