@@ -29,28 +29,38 @@
       const prev = corridor;
       corridor = Math.max(1, Math.min(COLS - 2, corridor + irand(3) - 1));
       const trees = new Set();
+      const holes = new Set();
       const coins = new Set();
       const flowers = [];
+      let rocket = null;
       if (!(isStart && r < 3)) {
         const density = Math.min(2 + irand(3) + Math.floor(r / 70), 5);
         const cells = [];
         for (let c = 0; c < COLS; c++) if (c !== corridor && c !== prev) cells.push(c);
         shuffle(cells);
-        for (let k = 0; k < density && k < cells.length; k++) trees.add(cells[k]);
+        let k = 0;
+        for (; k < density && k < cells.length; k++) trees.add(cells[k]);
+        if (r > 4 && Math.random() < 0.42) {
+          const n = Math.random() < 0.3 ? 2 : 1;
+          for (let j = 0; j < n && k < cells.length; j++, k++) holes.add(cells[k]);
+        }
+        if (r > 6 && Math.random() < 0.13 && k < cells.length) {
+          rocket = { c: cells[k++], phase: 'idle', t: 0 };
+        }
       }
       if (r > 2 && Math.random() < 0.38) {
         const free = [];
-        for (let c = 0; c < COLS; c++) if (!trees.has(c)) free.push(c);
+        for (let c = 0; c < COLS; c++) if (!trees.has(c) && !holes.has(c) && !(rocket && rocket.c === c)) free.push(c);
         shuffle(free);
         const k = Math.random() < 0.25 ? 2 : 1;
         for (let j = 0; j < k && j < free.length; j++) coins.add(free[j]);
       }
       for (let c = 0; c < COLS; c++) {
-        if (!trees.has(c) && Math.random() < 0.16) {
+        if (!trees.has(c) && !holes.has(c) && !(rocket && rocket.c === c) && Math.random() < 0.16) {
           flowers.push({ c, kind: irand(4), jx: (Math.random() - 0.5) * 30, jy: (Math.random() - 0.5) * 22 });
         }
       }
-      rows.set(r, { type: 'grass', trees, coins, flowers });
+      rows.set(r, { type: 'grass', trees, holes, coins, flowers, rocket });
     }
   }
 

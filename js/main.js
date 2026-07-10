@@ -46,6 +46,14 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // ---------- special abilities ----------
+  const ABILITY = {
+    cat:   { cd: 4, emoji: '\u{1F43E}', desc: '\u{1F43E} Long Leap — pounce 2 rows in one big bound!' },
+    dog:   { cd: 5, emoji: '\u{1F4A8}', desc: '\u{1F4A8} Dash — zoom 3 squares ahead in a flash!' },
+    bunny: { cd: 5, emoji: '\u{1F31F}', desc: '\u{1F31F} Double Jump — SPACE to hop, quick SPACE again mid-air!' },
+    duck:  { cd: 7, emoji: '\u{1FAB6}', desc: '\u{1FAB6} Fly — flap up and soar 3 rows over everything!' },
+  };
+
   // ---------- state ----------
   let state = 'menu'; // menu | play | dying | over
   let paused = false;
@@ -53,6 +61,11 @@
   let selected = store.get('hs_char', 0);
   let best = store.get('hs_best', 0);
   let totalCoins = store.get('hs_coins', 0);
+  let specialCd = 0;
+  // obstacles: airplanes (+ lingering contrails) and the idle-punishing eagle
+  const TRAIL_LIFE = 8;
+  let planes = [], trails = [], planeTimer = 6, idleT = 0, eagleWarned = false;
+  const irand = n => Math.floor(Math.random() * n);
 
   let cam = -4, menuCam = -4, graceT = 0, score = 0, runCoins = 0;
   let dieT = 0, deathCause = '', shake = 0;
@@ -63,6 +76,7 @@
     Object.assign(chr, {
       row: 2, col: 5, fromR: 2, fromC: 5, toR: 2, toC: 5,
       rowF: 2, colF: 5, hopping: false, hopT: 0, squashT: 9,
+      hopDur: 0.115, hopH: 22, air: false, z0: 0, lastDr: 1, lastDc: 0, teeter: null,
       flip: false, lean: 0, queued: null, bump: null, dead: false,
     });
   }
@@ -72,9 +86,19 @@
     resetChr();
     cam = chr.row - 6;
     graceT = 0; score = 0; runCoins = 0; dieT = 0; shake = 0;
+    specialCd = 0;
+    planes = []; trails = []; planeTimer = 5 + Math.random() * 4;
+    idleT = 0; eagleWarned = false;
     particles = [];
     ui.score.textContent = '0';
     ui.coins.textContent = '0';
+  }
+
+  function baseHopDur() {
+    const id = Sprites.ANIMALS[selected].id;
+    if (id === 'dog') return 0.092;   // speedy paws
+    if (id === 'bunny') return 0.15;  // floaty hops = a bigger double-jump window
+    return 0.115;
   }
 
   // ---------- particles (world-anchored so they scroll with the camera) ----------
@@ -145,20 +169,126 @@
     doMove(dr, dc);
   }
   function doMove(dr, dc) {
+    if (chr.teeter != null) return; // teetering over a hole — only a double jump saves you
     if (dc !== 0) chr.flip = dc < 0;
     const tr = chr.row + dr, tc = chr.col + dc;
     const minRow = Math.max(0, Math.ceil(cam - 0.2));
     if (tc < 0 || tc >= COLS || tr < minRow) return bumped();
     const row = World.row(tr);
     if (row && row.trees && row.trees.has(tc)) return bumped();
+    if (row && row.rocket && row.rocket.c === tc && (row.rocket.phase === 'idle' || row.rocket.phase === 'arm')) return bumped();
     chr.fromR = chr.row; chr.fromC = chr.col;
     chr.toR = tr; chr.toC = tc;
     chr.hopping = true;
     chr.hopT = 0;
+    chr.hopDur = baseHopDur();
+    chr.hopH = Sprites.ANIMALS[selected].id === 'bunny' ? 27 : 22;
+    chr.air = false;
+    chr.z0 = 0;
     chr.lean = dc;
+    idleT = 0; eagleWarned = false;
     spawnP('poof', (chr.col + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
     Sfx.hop();
     function bumped() { chr.bump = { dr, dc, t: 0 }; Sfx.bump(); }
+  }
+
+  function useSpecial() {
+    if (state !== 'play' || paused || chr.dead || specialCd > 0) return;
+    const id = Sprites.ANIMALS[selected].id;
+    if (id === 'bunny') return doubleJump();
+    if (chr.hopping) return; // everyone else launches from the ground
+    idleT = 0; eagleWarned = false;
+    if (id === 'dog') {
+      // ground dash: sprint up to 3 rows ahead — leaps clean over holes,
+      // but skids to a stop before solid obstacles (trees, rockets)
+      let tr = chr.row;
+      for (let i = 1; i <= 3; i++) {
+        const row = World.row(chr.row + i);
+        if (row && ((row.trees && row.trees.has(chr.col)) ||
+            (row.rocket && row.rocket.c === chr.col && row.rocket.phase !== 'gone'))) break;
+        if (!(row && row.holes && row.holes.has(chr.col))) tr = chr.row + i; // never stop IN a hole
+      }
+      if (tr === chr.row) { chr.bump = { dr: 1, dc: 0, t: 0 }; Sfx.bump(); return; }
+      launchSpecial(tr - chr.row, 0.09 * (tr - chr.row) + 0.06, 9);
+      Sfx.boost();
+    } else {
+      // cat leaps 2, duck flies 3 — land short if the target is blocked
+      const dist = { cat: 2, duck: 3 }[id];
+      let tr = chr.row + dist;
+      while (tr > chr.row) {
+        const row = World.row(tr);
+        if (row && ((row.trees && row.trees.has(chr.col)) || (row.holes && row.holes.has(chr.col)) ||
+            (row.rocket && row.rocket.c === chr.col && row.rocket.phase !== 'gone'))) tr--;
+        else break;
+      }
+      if (tr === chr.row) { chr.bump = { dr: 1, dc: 0, t: 0 }; Sfx.bump(); return; }
+      const arcs = { cat: [0.3, 36], duck: [0.7, 48] };
+      launchSpecial(tr - chr.row, arcs[id][0], arcs[id][1]);
+      Sfx.whoosh();
+    }
+    specialCd = ABILITY[id].cd;
+  }
+
+  function launchSpecial(dr, dur, h) {
+    chr.fromR = chr.row; chr.fromC = chr.col;
+    chr.toR = chr.row + dr; chr.toC = chr.col;
+    chr.hopping = true;
+    chr.hopT = 0;
+    chr.air = true;
+    chr.hopDur = dur;
+    chr.hopH = h;
+    chr.z0 = 0;
+    chr.lean = 0;
+    spawnP('poof', (chr.col + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
+  }
+
+  // bunny only: jump AGAIN off thin air, extending the current hop one more
+  // square in the same direction. A small grace window right after landing
+  // keeps the timing friendly.
+  function doubleJump() {
+    let dr, dc, z0, midair;
+    if (chr.hopping && !chr.air) {
+      midair = true;
+      dr = Math.sign(chr.toR - chr.fromR);
+      dc = Math.sign(chr.toC - chr.fromC);
+      z0 = Math.sin(Math.PI * Math.min(chr.hopT, 1)) * chr.hopH;
+    } else if (!chr.hopping && (chr.squashT < 0.15 || chr.teeter != null)) {
+      midair = false; // just landed (maybe teetering over a hole) — forgive it
+      dr = chr.lastDr;
+      dc = chr.lastDc;
+      z0 = 0;
+    } else if (!chr.hopping) {
+      // grounded: SPACE is just a regular forward hop for the bunny —
+      // the special is the QUICK second press while she's in the air
+      doMove(1, 0);
+      return;
+    } else {
+      return; // already on a special jump
+    }
+    const baseR = midair ? chr.toR : chr.row;
+    const baseC = midair ? chr.toC : chr.col;
+    const tr = baseR + dr, tc = baseC + dc;
+    const minRow = Math.max(0, Math.ceil(cam - 0.2));
+    if (tc < 0 || tc >= COLS || tr < minRow) return;
+    const row = World.row(tr);
+    if (row && ((row.trees && row.trees.has(tc)) ||
+        (row.rocket && row.rocket.c === tc && row.rocket.phase !== 'gone'))) {
+      return; // nothing to land on there — the double jump fizzles, cooldown kept
+    }
+    chr.fromR = chr.rowF; chr.fromC = chr.colF; // take off from right here, mid-air
+    chr.toR = tr; chr.toC = tc;
+    chr.hopping = true;
+    chr.hopT = 0;
+    chr.hopDur = 0.17;
+    chr.hopH = 30;
+    chr.z0 = z0;
+    chr.air = true; // the second jump is special — clouds can't touch it
+    chr.teeter = null; // saved from the hole!
+    if (dc !== 0) chr.flip = dc < 0;
+    idleT = 0; eagleWarned = false;
+    specialCd = ABILITY.bunny.cd;
+    spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam) - z0, { life: 0.3 });
+    Sfx.whoosh();
   }
 
   function updateChar(dt) {
@@ -168,16 +298,31 @@
     }
     chr.squashT += dt;
     if (chr.hopping) {
-      chr.hopT += dt / 0.115;
+      chr.hopT += dt / chr.hopDur;
       if (chr.hopT >= 1) {
+        chr.lastDr = Math.sign(chr.toR - chr.fromR);
+        chr.lastDc = Math.sign(chr.toC - chr.fromC);
         chr.row = chr.toR; chr.col = chr.toC;
         chr.hopping = false;
+        chr.air = false;
+        chr.z0 = 0;
         chr.squashT = 0;
         if (chr.row - 2 > score) {
           score = chr.row - 2;
           ui.score.textContent = score;
         }
         const row = World.row(chr.row);
+        if (row && row.holes && row.holes.has(chr.col)) {
+          if (Sprites.ANIMALS[selected].id === 'bunny' && specialCd <= 0) {
+            // teeter on the rim — a QUICK double jump can still save her!
+            chr.teeter = 0.15;
+            chr.queued = null;
+            Sfx.bump();
+          } else {
+            die('hole');
+          }
+          return;
+        }
         if (row && row.coins && row.coins.has(chr.col)) {
           row.coins.delete(chr.col);
           runCoins++;
@@ -204,8 +349,75 @@
   }
 
   // ---------- game flow ----------
+  function updatePlanes(dt) {
+    for (const p of planes) p.x += p.dir * p.speed * dt;
+    for (let i = planes.length - 1; i >= 0; i--) {
+      const p = planes[i];
+      if ((p.dir > 0 && p.x > COLS + 4) || (p.dir < 0 && p.x < -4)) {
+        planes.splice(i, 1);
+        trails.push({ row: p.row, age: 0 });
+      }
+    }
+    for (const l of trails) l.age += dt;
+    trails = trails.filter(l => l.age < TRAIL_LIFE);
+  }
+
+  function spawnPlane() {
+    // prefer rows whose sky is clear — a lingering contrail means "just passed"
+    for (let tries = 0; tries < 6; tries++) {
+      const r = Math.ceil(cam) + 3 + irand(9);
+      if (!World.row(r)) continue;
+      if (planes.some(p => p.row === r) || trails.some(l => l.row === r)) continue;
+      const dir = Math.random() < 0.5 ? 1 : -1;
+      planes.push({ row: r, dir, x: dir > 0 ? -3.5 : COLS + 3.5, speed: 6.5 + Math.random() * 2.5 });
+      Sfx.plane();
+      return;
+    }
+  }
+
+  function updateRockets(dt) {
+    const top = Math.floor(cam) + 16;
+    for (let r = Math.max(0, Math.floor(cam) - 1); r <= top; r++) {
+      const row = World.row(r);
+      if (!row || !row.rocket) continue;
+      const rk = row.rocket;
+      if (rk.phase === 'idle') {
+        // fuse lights when the player gets close
+        const d = r - chr.rowF;
+        if (state === 'play' && graceT > 2 && d > -1 && d < 5.5) {
+          rk.phase = 'arm';
+          rk.t = 0;
+          Sfx.rumble();
+        }
+      } else if (rk.phase === 'arm') {
+        rk.t += dt;
+        if (Math.random() < dt * 14) {
+          spawnP('poof', (rk.c + 0.5) * T + (Math.random() - 0.5) * 26, rowFeetY(r, cam) + 4, { life: 0.4 });
+        }
+        if (rk.t > 1.6) { rk.phase = 'fly'; rk.t = 0; Sfx.launch(); }
+      } else if (rk.phase === 'fly') {
+        rk.t += dt;
+        if (rk.t > 1.6) rk.phase = 'gone';
+      }
+    }
+  }
+
   function updatePlay(dt) {
     updateChar(dt);
+    if (state !== 'play') return; // a hole death can end the run mid-hop
+    if (chr.teeter != null && !chr.hopping) {
+      chr.teeter -= dt;
+      if (chr.teeter <= 0) {
+        chr.teeter = null;
+        die('hole');
+        return;
+      }
+    }
+    if (specialCd > 0) specialCd = Math.max(0, specialCd - dt);
+    // dashing dog kicks up a dust trail
+    if (chr.air && chr.hopping && Sprites.ANIMALS[selected].id === 'dog' && Math.random() < dt * 40) {
+      spawnP('poof', (chr.colF + 0.5) * T + (Math.random() - 0.5) * 20, rowFeetY(chr.rowF, cam) + 2, { life: 0.35 });
+    }
     graceT += dt;
     if (graceT > 3) cam += Math.min(0.32 + score * 0.005, 0.95) * dt;
     const tgt = chr.rowF - 4.5;
@@ -213,21 +425,56 @@
     World.update(dt, cam);
     updateParticles(dt);
 
-    // rain cloud collision (checked against the hop-interpolated position)
-    const cx = chr.colF + 0.5;
+    // rockets: the exhaust blast fries anything close by at liftoff
+    updateRockets(dt);
     for (const r of [Math.floor(chr.rowF), Math.floor(chr.rowF) + 1]) {
-      if (Math.abs(chr.rowF - r) > 0.45) continue;
       const row = World.row(r);
-      if (!row || row.type !== 'rainbow') continue;
-      for (const c of row.clouds) {
-        const wx = c.x - World.PAD;
-        if (Math.abs(wx - cx) < (c.w / 2 + 0.3) * 0.9) return die('cloud');
+      if (!row || !row.rocket) continue;
+      const rk = row.rocket;
+      if (rk.phase === 'fly' && rk.t < 0.45 &&
+          Math.abs(chr.rowF - r) < 0.6 && Math.abs(chr.colF - rk.c) < 1.55) {
+        return die('rocket');
+      }
+    }
+
+    // airplanes
+    updatePlanes(dt);
+    if (graceT > 4) {
+      planeTimer -= dt;
+      if (planeTimer <= 0) {
+        spawnPlane();
+        planeTimer = Math.max(3.5, 6 + Math.random() * 6 - score * 0.03);
+      }
+    }
+    for (const p of planes) {
+      if (Math.abs(chr.rowF - p.row) < 0.45 && Math.abs(p.x - (chr.colF + 0.5)) < 1.05) return die('plane');
+    }
+
+    // the eagle circles when you dawdle, then strikes
+    idleT += dt;
+    if (idleT > 4.5 && !eagleWarned) { eagleWarned = true; Sfx.screech(); }
+    if (idleT > 7.5) return die('eagle');
+
+    // rain cloud collision (checked against the hop-interpolated position);
+    // special moves are airborne mid-flight and pass safely over clouds
+    const airSafe = chr.air && chr.hopping && chr.hopT > 0.06 && chr.hopT < 0.94;
+    if (!airSafe) {
+      const cx = chr.colF + 0.5;
+      for (const r of [Math.floor(chr.rowF), Math.floor(chr.rowF) + 1]) {
+        if (Math.abs(chr.rowF - r) > 0.45) continue;
+        const row = World.row(r);
+        if (!row || row.type !== 'rainbow') continue;
+        for (const c of row.clouds) {
+          const wx = c.x - World.PAD;
+          if (Math.abs(wx - cx) < (c.w / 2 + 0.3) * 0.9) return die('cloud');
+        }
       }
     }
     if (chr.rowF - cam < -0.85) return die('swept');
   }
 
   function die(cause) {
+    if (state !== 'play') return;
     state = 'dying';
     deathCause = cause;
     chr.dead = true;
@@ -238,6 +485,18 @@
       shake = 0.3;
       rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
       Sfx.splash();
+    } else if (cause === 'plane') {
+      shake = 0.3;
+      Sfx.crash();
+    } else if (cause === 'hole') {
+      spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam), { life: 0.35 });
+      Sfx.fall();
+    } else if (cause === 'eagle') {
+      Sfx.screech();
+    } else if (cause === 'rocket') {
+      shake = 0.35;
+      rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
+      Sfx.crash();
     }
   }
 
@@ -245,8 +504,10 @@
     dieT += dt;
     if (shake > 0) shake = Math.max(0, shake - dt);
     World.update(dt, cam);
+    updatePlanes(dt);
+    updateRockets(dt);
     updateParticles(dt);
-    if (dieT > 0.95) finishGameOver();
+    if (dieT > (deathCause === 'eagle' ? 1.4 : 0.95)) finishGameOver();
   }
 
   function finishGameOver() {
@@ -256,10 +517,17 @@
     if (isBest) { best = score; store.set('hs_best', best); }
     totalCoins += runCoins;
     store.set('hs_coins', totalCoins);
-    ui.goTitle.textContent = deathCause === 'cloud' ? 'Splash! \u{1F4A6}' : 'Oh no! \u{1F327}\u{FE0F}';
-    ui.goReason.textContent = deathCause === 'cloud'
-      ? 'A grumpy rain cloud soaked you!'
-      : 'The storm caught up with you!';
+    const OVER = {
+      cloud: ['Splash! \u{1F4A6}', 'A grumpy rain cloud soaked you!'],
+      swept: ['Oh no! \u{1F327}\u{FE0F}', 'The storm caught up with you!'],
+      hole:  ['Whoops! \u{1F573}\u{FE0F}', 'You fell down a hole!'],
+      plane: ['Bonk! \u{2708}\u{FE0F}', 'An airplane zoomed right into you!'],
+      eagle: ['Snatched! \u{1F985}', 'An eagle grabbed you for standing still too long!'],
+      rocket: ['Blast off! \u{1F680}', 'You got caught in a spaceship launch!'],
+    };
+    const info = OVER[deathCause] || OVER.swept;
+    ui.goTitle.textContent = info[0];
+    ui.goReason.textContent = info[1];
     ui.goScore.textContent = score;
     show(ui.goBadge, isBest);
     ui.goBest.textContent = best;
@@ -286,6 +554,7 @@
     state = 'menu';
     paused = false;
     World.reset();
+    planes = []; trails = [];
     menuCam = -4;
     ui.menuBest.textContent = best;
     ui.menuCoins.textContent = totalCoins;
@@ -334,6 +603,12 @@
       if (row) {
         if (row.type === 'grass') {
           if (row.coins) for (const c of row.coins) Sprites.coin(ctx, (c + 0.5) * T, y + T * 0.52, tGlobal, c);
+          if (row.rocket) {
+            const rk = row.rocket;
+            const rx = (rk.c + 0.5) * T, ry = y + T * 0.82;
+            if (rk.phase === 'idle' || rk.phase === 'arm') Sprites.rocket(ctx, rx, ry, rk, tGlobal);
+            else Sprites.scorch(ctx, rx, ry);
+          }
           if (row.trees) for (const c of row.trees) Sprites.tree(ctx, (c + 0.5) * T, y + T * 0.82, r * 31 + c * 7);
         } else {
           for (const c of row.clouds) {
@@ -347,6 +622,83 @@
     }
 
     drawParticles(camY);
+
+    // ---- sky layer: launching rockets, contrails, airplanes, warnings, circling eagle ----
+    for (let r = rBot; r <= rTop; r++) {
+      const row = World.row(r);
+      if (row && row.rocket && row.rocket.phase === 'fly') {
+        const y = H - (r - camY + 1) * T;
+        Sprites.rocket(ctx, (row.rocket.c + 0.5) * T, y + T * 0.82, row.rocket, tGlobal);
+      }
+    }
+    const skyY = r => H - (r - camY + 1) * T + T * 0.38;
+    for (const l of trails) {
+      const y = skyY(l.row);
+      if (y < -30 || y > H + 30) continue;
+      const a = (1 - l.age / TRAIL_LIFE) * 0.5;
+      ctx.strokeStyle = 'rgba(255,255,255,' + a + ')';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-10, y);
+      ctx.lineTo(W + 10, y);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,' + a * 0.7 + ')';
+      for (let px = 20; px < W; px += 56) {
+        ctx.beginPath();
+        ctx.arc(px + (l.row * 37 % 30), y, 6 + (px * 13 + l.row * 7) % 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    for (const p of planes) {
+      const y = skyY(p.row);
+      if (y < -40 || y > H + 40) continue;
+      const px = p.x * T;
+      // contrail streaming back to the edge it came from
+      const tail = px - p.dir * 42;
+      const edge = p.dir > 0 ? -20 : W + 20;
+      const g = ctx.createLinearGradient(edge, 0, tail, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0.1)');
+      g.addColorStop(1, 'rgba(255,255,255,0.75)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(edge, y);
+      ctx.lineTo(tail, y);
+      ctx.stroke();
+      if (px > -60 && px < W + 60) {
+        ctx.fillStyle = 'rgba(20,30,50,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(px, y + T * 0.5, 30, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        Sprites.plane(ctx, px, y, p.dir, tGlobal);
+      } else {
+        // incoming! flashing warning at the edge it will enter from
+        if (Math.sin(tGlobal * 12) > -0.3) {
+          const wx = p.dir > 0 ? 22 : W - 22;
+          ctx.fillStyle = '#ff5a5f';
+          ctx.beginPath();
+          ctx.arc(wx, y, 13, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.font = '900 18px "Arial Rounded MT Bold", system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('!', wx, y + 6);
+          ctx.textAlign = 'left';
+        }
+      }
+    }
+    if (state === 'play' && idleT > 4.5) {
+      // eagle circling overhead — move or else!
+      const px = (chr.colF + 0.5) * T;
+      const py = rowFeetY(chr.rowF, cam);
+      ctx.fillStyle = 'rgba(0,0,0,' + (0.1 + 0.08 * Math.sin(tGlobal * 8)) + ')';
+      ctx.beginPath();
+      ctx.ellipse(px, py, 26 + Math.sin(tGlobal * 8) * 4, 9, 0, 0, Math.PI * 2);
+      ctx.fill();
+      Sprites.eagle(ctx, px + Math.sin(tGlobal * 2.6) * 46, py - 165 - Math.sin(tGlobal * 5) * 9, tGlobal, false);
+    }
 
     // soft edge vignette
     let g = ctx.createLinearGradient(0, 0, 60, 0);
@@ -384,17 +736,28 @@
       bx = chr.bump.dc * k;
       by = -chr.bump.dr * k;
     }
-    const z = chr.hopping ? Math.sin(Math.PI * Math.min(chr.hopT, 1)) * 22 : 0;
+    const k = Math.min(chr.hopT, 1);
+    let z = chr.hopping ? chr.z0 * (1 - k) + Math.sin(Math.PI * k) * chr.hopH : 0;
+    if (chr.teeter != null && !chr.hopping) z = -6; // sinking into the hole rim!
     let squash = 1;
     if (chr.hopping) squash = 1.06;
     else if (chr.squashT < 0.1) squash = 1 - 0.2 * Math.sin(Math.PI * chr.squashT / 0.1);
+    let shrink = null;
+    if (chr.dead && deathCause === 'hole') shrink = Math.max(0, 1 - dieT * 1.5);
+    if (chr.dead && deathCause === 'eagle') z += Math.max(0, dieT - 0.4) * 300; // carried away
     Sprites.animal(ctx, Sprites.ANIMALS[selected].id, x + bx, y + by, {
-      t: tGlobal, z, squash,
+      t: tGlobal, z, squash, shrink,
       flip: chr.flip,
       lean: chr.hopping ? chr.lean * 0.6 : 0,
-      dead: chr.dead && deathCause === 'cloud',
+      air: chr.air && chr.hopping,
+      dead: chr.dead && (deathCause === 'cloud' || deathCause === 'plane'),
       seed: 1.7,
     });
+    if (chr.dead && deathCause === 'eagle') {
+      const dive = Math.min(dieT / 0.4, 1);
+      const ey = y - z - 52 - (1 - dive) * 480;
+      Sprites.eagle(ctx, x, ey, tGlobal, true);
+    }
   }
 
   // ---------- character select cards ----------
@@ -429,6 +792,7 @@
     selected = ((i % 4) + 4) % 4;
     store.set('hs_char', selected);
     cardCanvases.forEach((c, j) => c.card.classList.toggle('selected', j === selected));
+    $('ability-line').textContent = ABILITY[Sprites.ANIMALS[selected].id].desc;
   }
   function drawCards() {
     Sprites.ANIMALS.forEach((a, i) => {
@@ -448,7 +812,7 @@
 
   // ---------- input ----------
   const KEYS = {
-    ArrowUp: [1, 0], w: [1, 0], W: [1, 0], ' ': [1, 0],
+    ArrowUp: [1, 0], w: [1, 0], W: [1, 0],
     ArrowDown: [-1, 0], s: [-1, 0], S: [-1, 0],
     ArrowLeft: [0, -1], a: [0, -1], A: [0, -1],
     ArrowRight: [0, 1], d: [0, 1], D: [0, 1],
@@ -463,6 +827,7 @@
       else if (e.key === 'Enter' || e.key === ' ') startGame();
     } else if (state === 'play') {
       if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') togglePause();
+      else if (!paused && (e.key === ' ' || e.key === 'Shift')) useSpecial();
       else if (!paused && KEYS[e.key]) tryMove(KEYS[e.key][0], KEYS[e.key][1]);
     } else if (state === 'over') {
       if (e.key === 'Enter' || e.key === ' ') startGame();
@@ -491,6 +856,21 @@
     Sfx.unlock();
     if (state === 'play' && !paused) tryMove(1, 0);
   });
+
+  // special ability button (shows the ability emoji, or seconds left while recharging)
+  const btnSpecial = $('btn-special');
+  btnSpecial.addEventListener('click', () => { Sfx.unlock(); useSpecial(); btnSpecial.blur(); });
+  function refreshSpecialBtn() {
+    if (specialCd > 0) {
+      const s = String(Math.ceil(specialCd));
+      if (btnSpecial.textContent !== s) btnSpecial.textContent = s;
+      btnSpecial.classList.add('cooling');
+    } else {
+      const em = ABILITY[Sprites.ANIMALS[selected].id].emoji;
+      if (btnSpecial.textContent !== em) btnSpecial.textContent = em;
+      btnSpecial.classList.remove('cooling');
+    }
+  }
 
   // buttons
   $('btn-play').addEventListener('click', () => { Sfx.unlock(); startGame(); });
@@ -527,6 +907,7 @@
     }
     drawWorld(state === 'menu' ? menuCam : cam);
     if (state === 'menu') drawCards();
+    else refreshSpecialBtn();
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);

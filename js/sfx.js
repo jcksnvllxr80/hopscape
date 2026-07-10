@@ -74,6 +74,22 @@
     start()  { [523, 659, 784].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.12, vol: 0.32, delay: i * 0.09 })); },
     splash() { noise({ dur: 0.45, vol: 0.6, freq: 900 });
                tone({ freq: 300, end: 70, type: 'sawtooth', dur: 0.5, vol: 0.22 }); },
+    whoosh() { noise({ dur: 0.3, vol: 0.45, freq: 1600 });
+               tone({ freq: 260, end: 720, type: 'sine', dur: 0.3, vol: 0.3 }); },
+    plane()  { noise({ dur: 2.2, vol: 0.5, freq: 2400 });
+               tone({ freq: 170, end: 80, type: 'sawtooth', dur: 2.2, vol: 0.16 });
+               tone({ freq: 340, end: 160, type: 'sawtooth', dur: 2.2, vol: 0.08 }); },
+    screech(){ tone({ freq: 1650, end: 750, type: 'sawtooth', dur: 0.38, vol: 0.2 });
+               tone({ freq: 1750, end: 850, type: 'sawtooth', dur: 0.32, vol: 0.16, delay: 0.45 }); },
+    fall()   { tone({ freq: 640, end: 110, type: 'sine', dur: 0.65, vol: 0.42 }); },
+    rumble() { noise({ dur: 1.6, vol: 0.5, freq: 200 });
+               tone({ freq: 55, end: 75, type: 'sawtooth', dur: 1.6, vol: 0.2 }); },
+    launch() { noise({ dur: 1.7, vol: 0.85, freq: 1000 });
+               tone({ freq: 85, end: 320, type: 'sawtooth', dur: 1.5, vol: 0.25 }); },
+    crash()  { noise({ dur: 0.4, vol: 0.7, freq: 650 });
+               tone({ freq: 210, end: 55, type: 'square', dur: 0.35, vol: 0.3 }); },
+    boost()  { tone({ freq: 440, end: 880, type: 'square', dur: 0.09, vol: 0.28 });
+               tone({ freq: 660, end: 1320, type: 'square', dur: 0.12, vol: 0.28, delay: 0.08 }); },
     over()   { [392, 330, 262, 196].forEach((f, i) => tone({ freq: f, type: 'triangle', dur: 0.16, vol: 0.32, delay: i * 0.13 })); },
     best()   { [523, 659, 784, 1047].forEach((f, i) => tone({ freq: f, type: 'square', dur: 0.1, vol: 0.22, delay: 0.5 + i * 0.09 })); },
   };

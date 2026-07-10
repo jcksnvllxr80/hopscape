@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Hopscape 🌈</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌈</text></svg>">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
 
@@ -28,6 +28,10 @@
         <button id="btn-pause" class="round-btn" title="Pause">⏸</button>
       </div>
     </div>
+    <div id="special-wrap">
+      <button id="btn-special" class="special-btn" title="Special move">🐾</button>
+      <div id="special-key">SPACE</div>
+    </div>
   </div>
 
   <div id="menu" class="overlay">
@@ -36,8 +40,10 @@
       <h1 class="logo">HOPSCAPE</h1>
       <p class="tagline">Hop the rainbows 🌈 Dodge the rain ⛈️ Grab the coins 🪙</p>
       <div id="cards"></div>
+      <p id="ability-line" class="ability-line"></p>
       <button id="btn-play" class="big-btn">▶ Play</button>
-      <p class="help">Arrow keys / WASD / swipe to hop &nbsp;•&nbsp; watch out for grumpy clouds!</p>
+      <p class="help">Arrow keys / WASD / swipe to hop &nbsp;•&nbsp; SPACE for your special move<br>
+      Mind the holes 🕳️ and airplanes ✈️ &nbsp;•&nbsp; keep moving, eagles are watching! 🦅</p>
       <p class="stats">🏆 Best <b id="menu-best">0</b> &nbsp;·&nbsp; 🪙 <b id="menu-coins">0</b></p>
     </div>
   </div>
@@ -68,9 +74,9 @@
   </div>
 </div>
 
-<script src="js/sfx.js"></script>
-<script src="js/sprites.js"></script>
-<script src="js/world.js"></script>
-<script src="js/main.js"></script>
+<script src="js/sfx.js?v=9"></script>
+<script src="js/sprites.js?v=9"></script>
+<script src="js/world.js?v=9"></script>
+<script src="js/main.js?v=9"></script>
 </body>
 </html>
