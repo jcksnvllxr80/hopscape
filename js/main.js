@@ -64,7 +64,10 @@
   let specialCd = 0;
   // obstacles: airplanes (+ lingering contrails) and the idle-punishing eagle
   const TRAIL_LIFE = 8;
-  let planes = [], trails = [], planeTimer = 6, idleT = 0, eagleWarned = false, honkCd = 0;
+  let planes = [], trails = [], planeTimer = 6, idleT = 0, honkCd = 0;
+  // eagleState: none (not around) -> active (circling, about to dive and grab)
+  // -> flee (missed its grab because you moved — wings off instead of vanishing)
+  let eagleState = 'none', eagleT = 0, eagleFleeDir = 1;
   const irand = n => Math.floor(Math.random() * n);
 
   let cam = -4, menuCam = -4, graceT = 0, score = 0, runCoins = 0;
@@ -77,7 +80,7 @@
       row: 2, col: 5, fromR: 2, fromC: 5, toR: 2, toC: 5,
       rowF: 2, colF: 5, hopping: false, hopT: 0, squashT: 9,
       hopDur: 0.115, hopH: 22, air: false, z0: 0, lastDr: 1, lastDc: 0, teeter: null,
-      flip: false, lean: 0, queued: null, bump: null, dead: false,
+      flip: false, lean: 0, queued: null, bump: null, dead: false, drift: 0,
     });
   }
 
@@ -88,7 +91,7 @@
     graceT = 0; score = 0; runCoins = 0; dieT = 0; shake = 0;
     specialCd = 0;
     planes = []; trails = []; planeTimer = 5 + Math.random() * 4;
-    idleT = 0; eagleWarned = false; honkCd = 0;
+    idleT = 0; eagleState = 'none'; eagleT = 0; honkCd = 0;
     particles = [];
     ui.score.textContent = '0';
     ui.coins.textContent = '0';
@@ -175,6 +178,25 @@
   }
 
   // ---------- movement ----------
+  // is world-column-center cx currently over a log in this river row?
+  function logUnder(row, cx) {
+    for (const l of row.logs) {
+      const wx = l.x - World.PAD;
+      if (Math.abs(wx - cx) < l.w / 2 + 0.15) return true;
+    }
+    return false;
+  }
+  // any successful move/special resets the idle clock; if the eagle was
+  // circling or diving in, this is the dodge — it flies off instead of
+  // just vanishing
+  function notifyMoved() {
+    idleT = 0;
+    if (eagleState === 'active') {
+      eagleState = 'flee';
+      eagleT = 0;
+      eagleFleeDir = Math.random() < 0.5 ? -1 : 1;
+    }
+  }
   function tryMove(dr, dc) {
     if (state !== 'play' || paused) return;
     if (chr.hopping) { chr.queued = [dr, dc]; return; }
@@ -183,14 +205,16 @@
   function doMove(dr, dc) {
     if (chr.teeter != null) return; // teetering over a hole — only a double jump saves you
     if (dc !== 0) chr.flip = dc < 0;
-    const tr = chr.row + dr, tc = chr.col + dc;
+    const baseC = Math.round(chr.col + chr.drift); // a log ride may have carried us off-grid
+    const tr = chr.row + dr, tc = baseC + dc;
     const minRow = Math.max(0, Math.ceil(cam - 0.2));
     if (tc < 0 || tc >= COLS || tr < minRow) return bumped();
     const row = World.row(tr);
     if (row && row.trees && row.trees.has(tc)) return bumped();
     if (row && row.rocket && row.rocket.c === tc && (row.rocket.phase === 'idle' || row.rocket.phase === 'arm')) return bumped();
-    chr.fromR = chr.row; chr.fromC = chr.col;
+    chr.fromR = chr.row; chr.fromC = chr.col + chr.drift;
     chr.toR = tr; chr.toC = tc;
+    chr.drift = 0;
     chr.hopping = true;
     chr.hopT = 0;
     chr.hopDur = baseHopDur();
@@ -198,8 +222,8 @@
     chr.air = false;
     chr.z0 = 0;
     chr.lean = dc;
-    idleT = 0; eagleWarned = false;
-    spawnP('poof', (chr.col + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
+    notifyMoved();
+    spawnP('poof', (chr.fromC + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
     Sfx.hop();
     function bumped() { chr.bump = { dr, dc, t: 0 }; Sfx.bump(); }
   }
@@ -209,16 +233,17 @@
     const id = Sprites.ANIMALS[selected].id;
     if (id === 'bunny') return doubleJump();
     if (chr.hopping) return; // everyone else launches from the ground
-    idleT = 0; eagleWarned = false;
+    notifyMoved();
+    const baseC = Math.round(chr.col + chr.drift); // a log ride may have carried us off-grid
     if (id === 'dog') {
       // ground dash: sprint up to 3 rows ahead — leaps clean over holes,
       // but skids to a stop before solid obstacles (trees, rockets)
       let tr = chr.row;
       for (let i = 1; i <= 3; i++) {
         const row = World.row(chr.row + i);
-        if (row && ((row.trees && row.trees.has(chr.col)) ||
-            (row.rocket && row.rocket.c === chr.col && row.rocket.phase !== 'gone'))) break;
-        if (!(row && row.holes && row.holes.has(chr.col))) tr = chr.row + i; // never stop IN a hole
+        if (row && ((row.trees && row.trees.has(baseC)) ||
+            (row.rocket && row.rocket.c === baseC && row.rocket.phase !== 'gone'))) break;
+        if (!(row && row.holes && row.holes.has(baseC))) tr = chr.row + i; // never stop IN a hole
       }
       if (tr === chr.row) { chr.bump = { dr: 1, dc: 0, t: 0 }; Sfx.bump(); return; }
       launchSpecial(tr - chr.row, 0.09 * (tr - chr.row) + 0.06, 9);
@@ -229,8 +254,8 @@
       let tr = chr.row + dist;
       while (tr > chr.row) {
         const row = World.row(tr);
-        if (row && ((row.trees && row.trees.has(chr.col)) || (row.holes && row.holes.has(chr.col)) ||
-            (row.rocket && row.rocket.c === chr.col && row.rocket.phase !== 'gone'))) tr--;
+        if (row && ((row.trees && row.trees.has(baseC)) || (row.holes && row.holes.has(baseC)) ||
+            (row.rocket && row.rocket.c === baseC && row.rocket.phase !== 'gone'))) tr--;
         else break;
       }
       if (tr === chr.row) { chr.bump = { dr: 1, dc: 0, t: 0 }; Sfx.bump(); return; }
@@ -242,8 +267,10 @@
   }
 
   function launchSpecial(dr, dur, h) {
-    chr.fromR = chr.row; chr.fromC = chr.col;
-    chr.toR = chr.row + dr; chr.toC = chr.col;
+    const baseC = Math.round(chr.col + chr.drift); // a log ride may have carried us off-grid
+    chr.fromR = chr.row; chr.fromC = chr.col + chr.drift;
+    chr.toR = chr.row + dr; chr.toC = baseC;
+    chr.drift = 0;
     chr.hopping = true;
     chr.hopT = 0;
     chr.air = true;
@@ -251,7 +278,7 @@
     chr.hopH = h;
     chr.z0 = 0;
     chr.lean = 0;
-    spawnP('poof', (chr.col + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
+    spawnP('poof', (chr.fromC + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
   }
 
   // bunny only: jump AGAIN off thin air, extending the current hop one more
@@ -278,7 +305,7 @@
       return; // already on a special jump
     }
     const baseR = midair ? chr.toR : chr.row;
-    const baseC = midair ? chr.toC : chr.col;
+    const baseC = midair ? chr.toC : Math.round(chr.col + chr.drift); // a log ride may have carried us off-grid
     const tr = baseR + dr, tc = baseC + dc;
     const minRow = Math.max(0, Math.ceil(cam - 0.2));
     if (tc < 0 || tc >= COLS || tr < minRow) return;
@@ -289,6 +316,7 @@
     }
     chr.fromR = chr.rowF; chr.fromC = chr.colF; // take off from right here, mid-air
     chr.toR = tr; chr.toC = tc;
+    chr.drift = 0;
     chr.hopping = true;
     chr.hopT = 0;
     chr.hopDur = 0.17;
@@ -297,7 +325,7 @@
     chr.air = true; // the second jump is special — clouds can't touch it
     chr.teeter = null; // saved from the hole!
     if (dc !== 0) chr.flip = dc < 0;
-    idleT = 0; eagleWarned = false;
+    notifyMoved();
     specialCd = ABILITY.bunny.cd;
     spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam) - z0, { life: 0.3 });
     Sfx.whoosh();
@@ -335,6 +363,10 @@
           }
           return;
         }
+        if (row && row.type === 'river' && !row.pads.has(chr.col) && !logUnder(row, chr.col + 0.5)) {
+          die('water'); // no log or lily pad here — straight into the drink
+          return;
+        }
         if (row && row.coins && row.coins.has(chr.col)) {
           row.coins.delete(chr.col);
           runCoins++;
@@ -355,9 +387,23 @@
       chr.colF = chr.fromC + (chr.toC - chr.fromC) * k;
     } else {
       chr.rowF = chr.row;
-      chr.colF = chr.col;
+      chr.colF = chr.col + chr.drift;
       chr.lean *= Math.max(0, 1 - dt * 10);
     }
+  }
+
+  // while grounded on a river row, ride whatever log is underfoot (or drown
+  // if it drifted out from under you); lily pads are fixed, so they're a no-op
+  function updateRiver(dt) {
+    if (chr.hopping || chr.dead) return;
+    const row = World.row(chr.row);
+    if (!row || row.type !== 'river') { chr.drift = 0; return; }
+    if (row.pads.has(chr.col)) { chr.drift = 0; return; }
+    const pos = chr.col + chr.drift;
+    if (!logUnder(row, pos + 0.5)) { die('water'); return; }
+    chr.drift += row.dir * row.speed * dt;
+    const np = chr.col + chr.drift;
+    if (np < -0.5 || np > COLS - 0.5) die('water'); // carried off the edge of the river
   }
 
   // ---------- game flow ----------
@@ -430,6 +476,8 @@
   function updatePlay(dt) {
     updateChar(dt);
     if (state !== 'play') return; // a hole death can end the run mid-hop
+    updateRiver(dt);
+    if (state !== 'play') return; // ...and so can a river current
     if (chr.teeter != null && !chr.hopping) {
       chr.teeter -= dt;
       if (chr.teeter <= 0) {
@@ -475,10 +523,18 @@
       if (Math.abs(chr.rowF - p.row) < 0.45 && Math.abs(p.x - (chr.colF + 0.5)) < 1.05) return die('plane');
     }
 
-    // the eagle circles when you dawdle, then strikes
+    // the eagle circles when you dawdle, then dives in fast to grab you —
+    // move before it lands the grab and it flies off empty-taloned instead
     idleT += dt;
-    if (idleT > 4.5 && !eagleWarned) { eagleWarned = true; Sfx.screech(); }
-    if (idleT > 7.5) return die('eagle');
+    if (eagleState === 'none') {
+      if (idleT > 3.2) { eagleState = 'active'; eagleT = 0; Sfx.screech(); }
+    } else if (eagleState === 'active') {
+      eagleT += dt;
+      if (idleT > 5) return die('eagle');
+    } else if (eagleState === 'flee') {
+      eagleT += dt;
+      if (eagleT > 0.8) { eagleState = 'none'; eagleT = 0; }
+    }
 
     drainWorldEvents();
 
@@ -546,6 +602,10 @@
     } else if (cause === 'hole') {
       spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam), { life: 0.35 });
       Sfx.fall();
+    } else if (cause === 'water') {
+      shake = 0.2;
+      rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
+      Sfx.splash();
     } else if (cause === 'eagle') {
       Sfx.screech();
     } else if (cause === 'rocket') {
@@ -577,6 +637,7 @@
       cloud: ['Splash! \u{1F4A6}', 'A grumpy rain cloud soaked you!'],
       swept: ['Oh no! \u{1F327}\u{FE0F}', 'The storm caught up with you!'],
       hole:  ['Whoops! \u{1F573}\u{FE0F}', 'You fell down a hole!'],
+      water: ['Sunk! \u{1F30A}', 'You slipped into the river with no log to ride!'],
       plane: ['Bonk! \u{2708}\u{FE0F}', 'An airplane zoomed right into you!'],
       eagle: ['Snatched! \u{1F985}', 'An eagle grabbed you for standing still too long!'],
       rocket: ['Blast off! \u{1F680}', 'You got caught in a spaceship launch!'],
@@ -647,6 +708,7 @@
       if (row && row.type === 'rainbow') Sprites.rainbowRow(ctx, y, row);
       else if (row && row.type === 'road') Sprites.roadRow(ctx, y, row);
       else if (row && row.type === 'deer') Sprites.deerRow(ctx, y, r, row);
+      else if (row && row.type === 'river') Sprites.riverRow(ctx, y, row);
       else Sprites.grassRow(ctx, y, r, row);
     }
 
@@ -685,6 +747,9 @@
           for (const d of row.deer) {
             Sprites.deer(ctx, (d.x - World.PAD) * T, y + T * 0.72, row.dir);
           }
+        } else if (row.type === 'river') {
+          for (const l of row.logs) Sprites.riverLog(ctx, (l.x - World.PAD) * T, y + T * 0.62, l.w);
+          for (const c of row.pads) Sprites.lilypad(ctx, (c + 0.5) * T, y + T * 0.58, tGlobal, c);
         }
         for (const tt of World.tractors()) {
           if (tt.row === r) Sprites.tractor(ctx, tt.x * T, y + T * 0.72, tt.dir, tGlobal);
@@ -761,15 +826,23 @@
         }
       }
     }
-    if (state === 'play' && idleT > 4.5) {
-      // eagle circling overhead — move or else!
+    if (state === 'play' && eagleState !== 'none') {
       const px = (chr.colF + 0.5) * T;
       const py = rowFeetY(chr.rowF, cam);
-      ctx.fillStyle = 'rgba(0,0,0,' + (0.1 + 0.08 * Math.sin(tGlobal * 8)) + ')';
-      ctx.beginPath();
-      ctx.ellipse(px, py, 26 + Math.sin(tGlobal * 8) * 4, 9, 0, 0, Math.PI * 2);
-      ctx.fill();
-      Sprites.eagle(ctx, px + Math.sin(tGlobal * 2.6) * 46, py - 165 - Math.sin(tGlobal * 5) * 9, tGlobal, false);
+      if (eagleState === 'active') {
+        // circling overhead — move or else!
+        ctx.fillStyle = 'rgba(0,0,0,' + (0.1 + 0.08 * Math.sin(tGlobal * 8)) + ')';
+        ctx.beginPath();
+        ctx.ellipse(px, py, 26 + Math.sin(tGlobal * 8) * 4, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        Sprites.eagle(ctx, px + Math.sin(tGlobal * 2.6) * 46, py - 165 - Math.sin(tGlobal * 5) * 9, tGlobal, false);
+      } else {
+        // flee: you dodged — it wings off to one side instead of vanishing
+        const k = Math.min(eagleT / 0.8, 1);
+        const ex = px + Math.sin(tGlobal * 2.6) * 46 * (1 - k) + eagleFleeDir * k * k * 520;
+        const ey = py - 165 - Math.sin(tGlobal * 5) * 9 * (1 - k) - k * k * 300;
+        Sprites.eagle(ctx, ex, ey, tGlobal, false);
+      }
     }
 
     // soft edge vignette
@@ -815,7 +888,7 @@
     if (chr.hopping) squash = 1.06;
     else if (chr.squashT < 0.1) squash = 1 - 0.2 * Math.sin(Math.PI * chr.squashT / 0.1);
     let shrink = null;
-    if (chr.dead && deathCause === 'hole') shrink = Math.max(0, 1 - dieT * 1.5);
+    if (chr.dead && (deathCause === 'hole' || deathCause === 'water')) shrink = Math.max(0, 1 - dieT * 1.5);
     if (chr.dead && deathCause === 'eagle') z += Math.max(0, dieT - 0.4) * 300; // carried away
     Sprites.animal(ctx, Sprites.ANIMALS[selected].id, x + bx, y + by, {
       t: tGlobal, z, squash, shrink,

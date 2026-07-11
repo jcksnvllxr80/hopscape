@@ -21,6 +21,11 @@
     return Math.max(1, Math.min(5, 1 + Math.floor(g * 1.45)));
   }
 
+  // Rivers stay short — only ever one or two rows of water to cross.
+  function riverWidth() {
+    return Math.random() < 0.55 ? 1 : 2;
+  }
+
   function shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
       const j = irand(i + 1);
@@ -133,11 +138,43 @@
     }
   }
 
+  // Rivers: each row is EITHER a lane of moving logs to time OR a scatter of
+  // static lily pads to hop across — never both on the same row.
+  function genRiver(n) {
+    for (let i = 0; i < n; i++) {
+      const r = nextRow++;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const logs = [];
+      const pads = new Set();
+      if (Math.random() < 0.55) {
+        const speed = Math.min((0.85 + Math.random() * 0.9) * (1 + Math.min(r / 170, 0.6)), 2.6);
+        const L = COLS + PAD * 2;
+        const minGap = Math.max(1.1, 2.3 - r * 0.012);
+        let x = Math.random() * 2;
+        while (x + 1.6 < L - 0.5) {
+          const w = 1.6 + Math.random() * 1.3;
+          logs.push({ x: x + w / 2, w, seed: Math.random() * 100 });
+          x += w + minGap + Math.random() * 1.5;
+        }
+        if (logs.length === 0) logs.push({ x: L / 2, w: 2.2, seed: 0 });
+        rows.set(r, { type: 'river', logs, pads, dir, speed, L, bi: i, bn: n });
+      } else {
+        const cells = [];
+        for (let c = 0; c < COLS; c++) cells.push(c);
+        shuffle(cells);
+        const count = 4 + irand(3); // 4-6 static stepping stones
+        for (let k = 0; k < count; k++) pads.add(cells[k]);
+        rows.set(r, { type: 'river', logs, pads, dir, speed: 0, L: COLS + PAD * 2, bi: i, bn: n });
+      }
+    }
+  }
+
   function genBand() {
     if (nextType === 'hazard') {
       const roll = Math.random();
-      if (roll < 0.62) genRainbow(bandWidth());
-      else if (roll < 0.77) genRoad(bandWidth()); // paved roads stay rare
+      if (roll < 0.48) genRainbow(bandWidth());
+      else if (roll < 0.60) genRoad(bandWidth()); // paved roads stay rare
+      else if (roll < 0.80) genRiver(riverWidth());
       else genDeer(bandWidth());
       nextType = 'grass';
     } else {
@@ -192,7 +229,8 @@
     for (let r = Math.max(0, Math.floor(cam) - 1); r <= top; r++) {
       const row = rows.get(r);
       if (!row) continue;
-      const traffic = row.type === 'rainbow' ? row.clouds : row.type === 'road' ? row.cars : null;
+      const traffic = row.type === 'rainbow' ? row.clouds : row.type === 'road' ? row.cars
+                    : row.type === 'river' ? row.logs : null;
       if (traffic) {
         for (const c of traffic) {
           c.x += row.dir * row.speed * dt;

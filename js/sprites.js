@@ -102,6 +102,29 @@
     }
   }
 
+  function riverRow(ctx, y, row) {
+    ctx.fillStyle = '#3f8fd6';
+    ctx.fillRect(0, y, CFG.W, T + 0.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    for (let x = 16; x < CFG.W; x += 48) {
+      const jy = (x * 37 + row.bi * 19) % 3;
+      ell(ctx, x, y + T * 0.32 + jy * 6, 15, 3);
+      ell(ctx, x + 24, y + T * 0.7 + jy * 5, 11, 2.4);
+    }
+    // foam line where the bank meets the water. Rows increase upward on
+    // screen, so bi=0 (the first/entry row, reached from the grass below)
+    // borders that grass along its BOTTOM edge; bi=bn-1 (the last/exit row,
+    // leading to the grass above) borders that grass along its TOP edge.
+    if (row.bi === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let x = 0; x < CFG.W; x += 20) rrf(ctx, x + 2, y + T - 4, 12, 6, 3);
+    }
+    if (row.bi === row.bn - 1) {
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let x = 0; x < CFG.W; x += 20) rrf(ctx, x + 2, y - 2, 12, 6, 3);
+    }
+  }
+
   function deerRow(ctx, y, r, row) {
     for (let c = 0; c < CFG.COLS; c++) {
       const p = ((r + c) % 2 + 2) % 2;
@@ -358,6 +381,73 @@
     ctx.fillStyle = '#ff5a5f';
     circ(ctx, -w / 2 + 2, -11, 2.4);
     ctx.restore();
+  }
+
+  // floating log — a safe ride across the river, so long as you stay aboard
+  function riverLog(ctx, x, y, wTiles) {
+    const w = wTiles * T * 0.9;
+    shadow(ctx, x, y + 13, w * 0.46, 5, 0.2);
+    ctx.fillStyle = '#8a5a33';
+    rrf(ctx, x - w / 2, y - 12, w, 20, 9);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    rrf(ctx, x - w / 2, y + 2, w, 5, 2.5);
+    ctx.fillStyle = '#a97c4f';
+    rrf(ctx, x - w / 2, y - 12, w, 6, 3);
+    ctx.fillStyle = '#c9976a';
+    ell(ctx, x - w / 2 + 7, y - 2, 6.5, 9);
+    ell(ctx, x + w / 2 - 7, y - 2, 6.5, 9);
+    ctx.strokeStyle = 'rgba(90,58,30,0.55)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.ellipse(x - w / 2 + 7, y - 2, 3.6, 5.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + w / 2 - 7, y - 2, 3.6, 5.5, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(90,58,30,0.3)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    for (let gx = -w / 2 + 20; gx < w / 2 - 14; gx += 14) {
+      ctx.moveTo(x + gx, y - 6);
+      ctx.lineTo(x + gx + 8, y - 6);
+    }
+    ctx.stroke();
+  }
+
+  // static lily pad — a fixed safe resting spot that never drifts
+  function lilypad(ctx, x, y, t, seed) {
+    const s = Math.abs(Math.sin(seed * 12.9898) * 43758.5453) % 1;
+    const bob = Math.sin(t * 1.6 + seed * 2) * 1.5;
+    const cy = y + bob;
+    shadow(ctx, x, y + 11, 19, 5, 0.18);
+    const notch = 0.34;
+    const rot = s * Math.PI * 2;
+    ctx.fillStyle = '#3d9e4f';
+    ctx.beginPath();
+    ctx.moveTo(x, cy);
+    ctx.arc(x, cy, 18, rot + notch, rot + Math.PI * 2 - notch);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#4db362';
+    ctx.beginPath();
+    ctx.moveTo(x, cy - 1);
+    ctx.arc(x, cy - 1, 14.5, rot + notch, rot + Math.PI * 2 - notch);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30,80,40,0.4)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x, cy); ctx.lineTo(x + Math.cos(rot) * 17, cy + Math.sin(rot) * 17);
+    ctx.moveTo(x, cy); ctx.lineTo(x + Math.cos(rot + Math.PI) * 17, cy + Math.sin(rot + Math.PI) * 17);
+    ctx.moveTo(x, cy); ctx.lineTo(x + Math.cos(rot + Math.PI / 2) * 14, cy + Math.sin(rot + Math.PI / 2) * 14);
+    ctx.stroke();
+    if (s < 0.4) {
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 5; i++) {
+        const a = i * (Math.PI * 2 / 5);
+        ell(ctx, x + Math.cos(a) * 3.4, cy - 6 + Math.sin(a) * 3.4, 2.2, 1.5);
+      }
+      ctx.fillStyle = '#ffce3d';
+      circ(ctx, x, cy - 6, 1.8);
+    }
   }
 
   // bounding deer — gallop cycle tied to its x position
@@ -884,7 +974,7 @@
       { id: 'bunny', name: 'Clover',  kind: 'the bunny' },
       { id: 'duck',  name: 'Puddles', kind: 'the duck' },
     ],
-    grassRow, rainbowRow, roadRow, deerRow, tree, coin, cloud, cloudShadow, bestLine,
-    animal, plane, eagle, rocket, scorch, car, deer, tractor,
+    grassRow, rainbowRow, roadRow, riverRow, deerRow, tree, coin, cloud, cloudShadow, bestLine,
+    animal, plane, eagle, rocket, scorch, car, riverLog, lilypad, deer, tractor,
   };
 })();
