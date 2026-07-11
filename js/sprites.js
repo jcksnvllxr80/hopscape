@@ -68,8 +68,11 @@
       ctx.fillStyle = 'rgba(122,90,48,0.5)';
       ctx.fillRect(span[0], y + T * 0.26, span[1] - span[0], 5);
       ctx.fillRect(span[0], y + T * 0.6, span[1] - span[0], 5);
+      // pebbles sit on a fixed grid so they're revealed in place as the dirt
+      // grows, rather than sliding along with whichever edge is advancing
       ctx.fillStyle = 'rgba(90,64,32,0.35)';
-      for (let x = span[0] + 10; x < span[1] - 6; x += 42) {
+      for (let x = 10; x < CFG.W - 6; x += 42) {
+        if (x < span[0] || x > span[1] - 6) continue;
         circ(ctx, x + (r * 13 + x) % 12, y + T * 0.45, 2.5);
       }
     }
