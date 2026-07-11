@@ -1,0 +1,39 @@
+name: Hopscape
+options:
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+targets:
+  # Standalone (hostless) test bundle: compiles the drawing layer directly so
+  # running it never terminates a live Hopscape app instance in the simulator.
+  HopscapeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - HopscapeTests
+      - Hopscape/Game/Config.swift
+      - Hopscape/Game/Canvas2D.swift
+      - Hopscape/Game/Sprites.swift
+      - Hopscape/Game/World.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aaronwatkins.hopscape.tests
+        SWIFT_VERSION: "5.9"
+        GENERATE_INFOPLIST_FILE: YES
+  Hopscape:
+    type: application
+    platform: iOS
+    sources:
+      - Hopscape
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aaronwatkins.hopscape
+        PRODUCT_NAME: Hopscape
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_FILE: Hopscape/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
