@@ -51,7 +51,7 @@
 		9E892050416FF4A76D6FC236 /* Overlays.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Overlays.swift; sourceTree = "<group>"; };
 		A5976E4DF781519BF3129CA5 /* Game.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Game.swift; sourceTree = "<group>"; };
 		B5970C0B45CC03D899653EE9 /* CardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardView.swift; sourceTree = "<group>"; };
-		BAB2E960942F6BCDCBCEFCD9 /* Hopscape.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Hopscape.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BAB2E960942F6BCDCBCEFCD9 /* Hopscape.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hopscape.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA2DDCD90A94EAE4E703D618 /* HUDView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDView.swift; sourceTree = "<group>"; };
 		F0CF54AAE0DA682828513A6D /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
 		FBB58CE9C6B89FF077BBFE6F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -417,6 +417,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 36PLXAY8XH;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = Hopscape/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -439,6 +440,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 36PLXAY8XH;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				INFOPLIST_FILE = Hopscape/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
