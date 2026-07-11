@@ -84,6 +84,13 @@
     fall()   { tone({ freq: 640, end: 110, type: 'sine', dur: 0.65, vol: 0.42 }); },
     rumble() { noise({ dur: 1.6, vol: 0.5, freq: 200 });
                tone({ freq: 55, end: 75, type: 'sawtooth', dur: 1.6, vol: 0.2 }); },
+    honk()   { tone({ freq: 610, type: 'square', dur: 0.09, vol: 0.22 });
+               tone({ freq: 610, type: 'square', dur: 0.16, vol: 0.22, delay: 0.14 }); },
+    tractor(){ for (let i = 0; i < 6; i++) tone({ freq: 82 + (i % 2) * 14, end: 70, type: 'square', dur: 0.09, vol: 0.2, delay: i * 0.13 });
+               noise({ dur: 0.8, vol: 0.25, freq: 300 }); },
+    crunch() { noise({ dur: 0.3, vol: 0.6, freq: 500 });
+               tone({ freq: 160, end: 60, type: 'triangle', dur: 0.25, vol: 0.35 }); },
+    gallop() { for (let i = 0; i < 4; i++) noise({ dur: 0.08, vol: 0.35, freq: 350, delay: i * 0.14 }); },
     launch() { noise({ dur: 1.7, vol: 0.85, freq: 1000 });
                tone({ freq: 85, end: 320, type: 'sawtooth', dur: 1.5, vol: 0.25 }); },
     crash()  { noise({ dur: 0.4, vol: 0.7, freq: 650 });

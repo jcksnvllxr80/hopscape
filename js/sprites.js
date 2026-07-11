@@ -3,7 +3,8 @@
   window.CFG = { TILE: 64, COLS: 11, W: 704, H: 960 };
   const T = CFG.TILE;
 
-  const RAINBOW = ['#ff5a5f', '#ff9f43', '#ffd93d', '#6dd36d', '#4aa3ff', '#9b6ef3'];
+  // proper ROYGBIV: red, orange, yellow, green, blue, indigo, violet
+  const RAINBOW = ['#ff5a5f', '#ff9f43', '#ffd93d', '#6dd36d', '#4aa3ff', '#5a63d8', '#9b6ef3'];
 
   // ---------- little shape helpers ----------
   function circ(ctx, x, y, r) {
@@ -41,18 +42,108 @@
   }
 
   // ---------- ground ----------
+  function dirtSpan(row) {
+    if (row.dirtFull) return [0, CFG.W];
+    const d = row.dirt;
+    if (!d) return null;
+    if (d.dir > 0) {
+      const x1 = (d.edge - 0.6) * T;
+      return x1 > 0 ? [0, Math.min(x1, CFG.W)] : null;
+    }
+    const x0 = (d.edge + 0.6) * T;
+    return x0 < CFG.W ? [Math.max(0, x0), CFG.W] : null;
+  }
+
   function grassRow(ctx, y, r, row) {
     for (let c = 0; c < CFG.COLS; c++) {
       const p = ((r + c) % 2 + 2) % 2;
       ctx.fillStyle = p ? '#98d96f' : '#8fd166';
       ctx.fillRect(c * T, y, T, T + 0.5);
     }
+    // dirt road left behind by a tractor
+    const span = row && dirtSpan(row);
+    if (span) {
+      ctx.fillStyle = '#c09a62';
+      ctx.fillRect(span[0], y, span[1] - span[0], T + 0.5);
+      ctx.fillStyle = 'rgba(122,90,48,0.5)';
+      ctx.fillRect(span[0], y + T * 0.26, span[1] - span[0], 5);
+      ctx.fillRect(span[0], y + T * 0.6, span[1] - span[0], 5);
+      ctx.fillStyle = 'rgba(90,64,32,0.35)';
+      for (let x = span[0] + 10; x < span[1] - 6; x += 42) {
+        circ(ctx, x + (r * 13 + x) % 12, y + T * 0.45, 2.5);
+      }
+    }
     if (row && row.holes) {
       for (const c of row.holes) hole(ctx, (c + 0.5) * T, y + T * 0.55);
     }
     if (row && row.flowers) {
-      for (const f of row.flowers) flower(ctx, (f.c + 0.5) * T + f.jx, y + T * 0.5 + f.jy, f.kind);
+      for (const f of row.flowers) {
+        const fx = (f.c + 0.5) * T + f.jx;
+        if (span && fx > span[0] && fx < span[1]) continue; // flattened by the tractor
+        flower(ctx, fx, y + T * 0.5 + f.jy, f.kind);
+      }
     }
+  }
+
+  function roadRow(ctx, y, row) {
+    ctx.fillStyle = '#555b66';
+    ctx.fillRect(0, y, CFG.W, T + 0.5);
+    if (row.bi === 0) {
+      ctx.fillStyle = '#9aa0ab';
+      ctx.fillRect(0, y, CFG.W, 3.5);
+    }
+    if (row.bi === row.bn - 1) {
+      ctx.fillStyle = '#3c414b';
+      ctx.fillRect(0, y + T - 3.5, CFG.W, 3.5);
+    }
+    if (row.bi > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      for (let x = 8; x < CFG.W; x += 42) ctx.fillRect(x, y - 2, 22, 4);
+    }
+  }
+
+  function deerRow(ctx, y, r, row) {
+    for (let c = 0; c < CFG.COLS; c++) {
+      const p = ((r + c) % 2 + 2) % 2;
+      ctx.fillStyle = p ? '#98d96f' : '#8fd166';
+      ctx.fillRect(c * T, y, T, T + 0.5);
+    }
+    // trampled trail
+    ctx.fillStyle = 'rgba(193,154,94,0.5)';
+    rrf(ctx, -4, y + T * 0.3, CFG.W + 8, T * 0.42, 12);
+    ctx.fillStyle = 'rgba(110,80,45,0.4)';
+    for (let x = 26; x < CFG.W; x += 52) {
+      ell(ctx, x + (r * 17 + x) % 14, y + T * 0.44, 3, 2);
+      ell(ctx, x + 9 + (r * 11 + x) % 10, y + T * 0.6, 3, 2);
+    }
+    deerSign(ctx, 26, y + T * 0.42);
+    deerSign(ctx, CFG.W - 26, y + T * 0.42);
+  }
+
+  function deerSign(ctx, x, y) {
+    ctx.fillStyle = '#7d838f';
+    rrf(ctx, x - 2.5, y - 4, 5, 24, 2);
+    ctx.save();
+    ctx.translate(x, y - 14);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#ffd23e';
+    rrf(ctx, -11, -11, 22, 22, 4);
+    ctx.strokeStyle = '#8a6508';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-8.5, -8.5, 17, 17);
+    ctx.restore();
+    // little leaping deer silhouette
+    ctx.fillStyle = '#3a2d24';
+    ell(ctx, x, y - 13, 5.5, 3);
+    circ(ctx, x + 5, y - 17, 2.2);
+    ctx.strokeStyle = '#3a2d24';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x + 5, y - 19); ctx.lineTo(x + 3.5, y - 22);
+    ctx.moveTo(x + 5, y - 19); ctx.lineTo(x + 7, y - 22);
+    ctx.moveTo(x - 3, y - 11); ctx.lineTo(x - 5, y - 7);
+    ctx.moveTo(x + 3, y - 11); ctx.lineTo(x + 5, y - 7);
+    ctx.stroke();
   }
 
   function hole(ctx, x, y) {
@@ -94,11 +185,11 @@
   }
 
   function rainbowRow(ctx, y, row) {
-    // Consecutive rainbow rows form one band; each row draws its slice of the 6 stripes
+    // Consecutive rainbow rows form one band; each row draws its slice of the 7 stripes
     const bandH = row.bn * T;
-    const y0 = y - row.bi * T;
-    const sh = bandH / 6;
-    for (let s = 0; s < 6; s++) {
+    const y0 = y - (row.bn - 1 - row.bi) * T;
+    const sh = bandH / 7;
+    for (let s = 0; s < 7; s++) {
       const sy = y0 + s * sh;
       const top = Math.max(sy, y);
       const bot = Math.min(sy + sh, y + T);
@@ -227,6 +318,126 @@
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+  }
+
+  // cute little cars (kind 0-4 = colors, kind 9 = delivery truck)
+  const CAR_COLORS = ['#ff5a5f', '#4aa3ff', '#6dd36d', '#b57edc', '#ff9f43'];
+  function car(ctx, x, y, wTiles, kind, dir, t) {
+    const w = wTiles * T * 0.88;
+    const bob = Math.sin(t * 9 + x * 0.05) * 0.8;
+    shadow(ctx, x, y + 12, w * 0.48, 5, 0.25);
+    ctx.save();
+    ctx.translate(x, y + bob);
+    if (dir < 0) ctx.scale(-1, 1);
+    if (kind === 9) {
+      ctx.fillStyle = '#e8e4da';
+      rrf(ctx, -w / 2, -30, w * 0.62, 28, 4);
+      ctx.fillStyle = '#4aa3ff';
+      rrf(ctx, -w / 2 + w * 0.6, -24, w * 0.4, 22, 6);
+      ctx.fillStyle = '#bfe6ff';
+      rrf(ctx, -w / 2 + w * 0.68, -21, w * 0.2, 9, 3);
+      ctx.fillStyle = '#d3cfc4';
+      rrf(ctx, -w / 2 + 5, -24, w * 0.45, 3, 1.5);
+      rrf(ctx, -w / 2 + 5, -16, w * 0.45, 3, 1.5);
+    } else {
+      ctx.fillStyle = CAR_COLORS[kind % 5];
+      rrf(ctx, -w / 2, -24, w, 22, 9);
+      ctx.fillStyle = '#d9f0ff';
+      rrf(ctx, -w * 0.3, -21, w * 0.55, 10, 5);
+      ctx.fillStyle = CAR_COLORS[kind % 5];
+      ctx.fillRect(-w * 0.05, -21, 4, 10);
+    }
+    ctx.fillStyle = '#2a2d33';
+    circ(ctx, -w * 0.28, 0, 6.5);
+    circ(ctx, w * 0.28, 0, 6.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    circ(ctx, -w * 0.28, 0, 2.4);
+    circ(ctx, w * 0.28, 0, 2.4);
+    ctx.fillStyle = '#fff3ad';
+    circ(ctx, w / 2 - 2, -11, 3);
+    ctx.fillStyle = '#ff5a5f';
+    circ(ctx, -w / 2 + 2, -11, 2.4);
+    ctx.restore();
+  }
+
+  // bounding deer — gallop cycle tied to its x position
+  function deer(ctx, x, y, dir) {
+    const bound = Math.abs(Math.sin(x * 0.09));
+    const lift = bound * 10;
+    shadow(ctx, x, y, 14, 5, 0.2);
+    ctx.save();
+    ctx.translate(x, y - 5 - lift);
+    if (dir < 0) ctx.scale(-1, 1);
+    ctx.strokeStyle = '#9c6b3f';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    const legSwing = (bound - 0.5) * 10;
+    ctx.beginPath();
+    ctx.moveTo(-9, -6); ctx.lineTo(-9 - legSwing, 4);
+    ctx.moveTo(-5, -6); ctx.lineTo(-6 - legSwing, 4);
+    ctx.moveTo(7, -6);  ctx.lineTo(7 + legSwing, 4);
+    ctx.moveTo(11, -6); ctx.lineTo(12 + legSwing, 4);
+    ctx.stroke();
+    ctx.fillStyle = '#c68e5a';
+    ell(ctx, 0, -12, 14, 8);
+    ctx.fillStyle = '#f4ead9';
+    circ(ctx, -11, -13, 4);
+    circ(ctx, -14.5, -15, 2.5);
+    ctx.fillStyle = '#c68e5a';
+    rrf(ctx, 8, -28, 7, 17, 3.5);
+    ell(ctx, 13, -28, 6.5, 5);
+    tri(ctx, 8, -31, 5, -37, 11, -32);
+    ctx.strokeStyle = '#8a5a33';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(11, -32); ctx.lineTo(9, -39);
+    ctx.moveTo(9.7, -36); ctx.lineTo(6, -38);
+    ctx.moveTo(15, -32); ctx.lineTo(16, -39);
+    ctx.moveTo(15.6, -36); ctx.lineTo(19, -38);
+    ctx.stroke();
+    ctx.fillStyle = '#26221f';
+    circ(ctx, 14, -29.5, 1.6);
+    circ(ctx, 18.5, -27, 1.8);
+    ctx.restore();
+  }
+
+  // tree-flattening, dirt-road-making tractor
+  function tractor(ctx, x, y, dir, t) {
+    shadow(ctx, x, y + 2, 27, 7, 0.25);
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir < 0) ctx.scale(-1, 1);
+    // pusher blade out front
+    ctx.fillStyle = '#8a8f9c';
+    rrf(ctx, 18, -18, 7, 22, 2);
+    ctx.fillStyle = '#6d7280';
+    rrf(ctx, 15, -10, 5, 4, 1);
+    // body + hood
+    ctx.fillStyle = '#4cae4c';
+    rrf(ctx, -18, -22, 34, 17, 4);
+    ctx.fillStyle = '#3d9142';
+    rrf(ctx, 6, -19, 11, 14, 3);
+    // cab
+    ctx.fillStyle = '#2e7d32';
+    rrf(ctx, -18, -36, 15, 16, 3);
+    ctx.fillStyle = '#bfe6ff';
+    rrf(ctx, -15, -33, 9, 9, 2);
+    // exhaust pipe + puffing smoke
+    ctx.fillStyle = '#555a66';
+    rrf(ctx, 3, -32, 3.5, 12, 1.5);
+    for (let i = 0; i < 3; i++) {
+      const ph = ((t * 0.9 + i * 0.33) % 1);
+      ctx.fillStyle = 'rgba(160,160,168,' + (0.5 * (1 - ph)) + ')';
+      circ(ctx, 5 + Math.sin(t * 3 + i * 2) * 3, -36 - ph * 20, 3 + ph * 5);
+    }
+    // wheels
+    ctx.fillStyle = '#2a2d33';
+    circ(ctx, -9, -2, 12);
+    circ(ctx, 12, 2, 7);
+    ctx.fillStyle = '#e0a616';
+    circ(ctx, -9, -2, 5);
+    circ(ctx, 12, 2, 3);
+    ctx.restore();
   }
 
   // little spaceship on its pad; rk.phase: idle | arm (rumbling) | fly (launching)
@@ -673,6 +884,7 @@
       { id: 'bunny', name: 'Clover',  kind: 'the bunny' },
       { id: 'duck',  name: 'Puddles', kind: 'the duck' },
     ],
-    grassRow, rainbowRow, tree, coin, cloud, cloudShadow, bestLine, animal, plane, eagle, rocket, scorch,
+    grassRow, rainbowRow, roadRow, deerRow, tree, coin, cloud, cloudShadow, bestLine,
+    animal, plane, eagle, rocket, scorch, car, deer, tractor,
   };
 })();

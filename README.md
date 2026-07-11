@@ -58,6 +58,15 @@ before she falls!
   begins — it rumbles, shakes, and puffs smoke with a flashing `!`, then blasts
   straight up into the sky. Don't be next to the pad at liftoff or the exhaust
   will toast you! (Afterwards only a harmless scorch mark remains)
+- 🚗 **Paved roads** (rare) carry car and truck traffic in both directions — you'll
+  even hear a warning honk when one is bearing down on you
+- 🦌 **Deer crossings** are marked with yellow diamond signs — every so often a
+  small herd bounds across the trail (you'll hear the galloping), and getting
+  bowled over by a deer ends your run
+- 🚜 **Tractors** occasionally trundle across a grassy row, knocking every tree
+  flat and carving a fresh dirt road behind them. Great news: a bulldozed row is
+  wide open to hop through. Bad news: the tractor itself squishes anything in
+  its path, and the trees you were hiding behind are gone for good
 - 🪙 Coins appear on the grass — hop onto them to collect
 - ⛈️ Don't dawdle: the screen slowly scrolls and the storm sweeps up anyone left behind
 - 🏆 Your score is how far you hop; best score and total coins are saved in your browser

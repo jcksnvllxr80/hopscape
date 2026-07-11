@@ -1,11 +1,26 @@
-// Hopscape — world generation: bands of grass (trees, coins, flowers) and rainbow roads (rain clouds)
+// Hopscape — world generation: grass (trees, holes, coins, rockets), rainbow roads
+// (rain clouds), paved roads (cars), deer crossings, and roaming tractors that
+// flatten trees and carve dirt roads.
 (() => {
   const COLS = CFG.COLS;
-  const PAD = 2.5; // clouds travel PAD tiles past each edge before wrapping
+  const PAD = 2.5; // moving hazards travel PAD tiles past each edge before wrapping
 
   let rows, nextRow, corridor, nextType;
+  let tractors, tractorTimer;
+  let events; // world → game notifications (falling trees, tractor spawns, deer herds)
 
   const irand = n => Math.floor(Math.random() * n);
+
+  // Band width 1-5: the positive half of a bell curve centered on 1 —
+  // mostly single rows, sometimes 2-3, rarely a whopping 4-5.
+  function bandWidth() {
+    let u = 0, v = 0;
+    while (!u) u = Math.random();
+    while (!v) v = Math.random();
+    const g = Math.abs(Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v));
+    return Math.max(1, Math.min(5, 1 + Math.floor(g * 1.45)));
+  }
+
   function shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
       const j = irand(i + 1);
@@ -18,7 +33,10 @@
     rows = new Map();
     nextRow = 0;
     corridor = 5;
-    nextType = 'rainbow';
+    nextType = 'hazard';
+    tractors = [];
+    tractorTimer = 11 + Math.random() * 8;
+    events = [];
     genGrass(5, true);
   }
 
@@ -41,8 +59,8 @@
         let k = 0;
         for (; k < density && k < cells.length; k++) trees.add(cells[k]);
         if (r > 4 && Math.random() < 0.42) {
-          const n = Math.random() < 0.3 ? 2 : 1;
-          for (let j = 0; j < n && k < cells.length; j++, k++) holes.add(cells[k]);
+          const n2 = Math.random() < 0.3 ? 2 : 1;
+          for (let j = 0; j < n2 && k < cells.length; j++, k++) holes.add(cells[k]);
         }
         if (r > 6 && Math.random() < 0.13 && k < cells.length) {
           rocket = { c: cells[k++], phase: 'idle', t: 0 };
@@ -83,14 +101,87 @@
     }
   }
 
+  function genRoad(n) {
+    for (let i = 0; i < n; i++) {
+      const r = nextRow++;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      const speed = Math.min((1.5 + Math.random() * 1.2) * (1 + Math.min(r / 170, 0.7)), 3.8);
+      const L = COLS + PAD * 2;
+      const minGap = Math.max(2, 3.2 - r * 0.015);
+      const cars = [];
+      let x = Math.random() * 2;
+      while (x + 2.2 < L - 0.5) {
+        const truck = Math.random() < 0.18;
+        const w = truck ? 1.7 : 1 + Math.random() * 0.15;
+        cars.push({ x: x + w / 2, w, kind: truck ? 9 : irand(5), seed: Math.random() * 100 });
+        x += w + minGap + Math.random() * 2.4;
+      }
+      if (cars.length === 0) cars.push({ x: L / 2, w: 1, kind: irand(5), seed: 0 });
+      rows.set(r, { type: 'road', cars, dir, speed, L, bi: i, bn: n });
+    }
+  }
+
+  function genDeer(n) {
+    for (let i = 0; i < n; i++) {
+      const r = nextRow++;
+      rows.set(r, {
+        type: 'deer', deer: [], dir: Math.random() < 0.5 ? -1 : 1,
+        speed: 3 + Math.random() * 1.5, timer: 1.5 + Math.random() * 4,
+        L: COLS + PAD * 2,
+        trees: new Set(), holes: new Set(), coins: new Set(), flowers: [],
+      });
+    }
+  }
+
   function genBand() {
-    if (nextType === 'rainbow') {
-      const maxLen = 1 + Math.min(3, Math.floor(nextRow / 28));
-      genRainbow(1 + irand(maxLen));
+    if (nextType === 'hazard') {
+      const roll = Math.random();
+      if (roll < 0.62) genRainbow(bandWidth());
+      else if (roll < 0.77) genRoad(bandWidth()); // paved roads stay rare
+      else genDeer(bandWidth());
       nextType = 'grass';
     } else {
       genGrass(1 + irand(3), false);
-      nextType = 'rainbow';
+      nextType = 'hazard';
+    }
+  }
+
+  function updateTractors(dt, cam) {
+    tractorTimer -= dt;
+    if (tractorTimer <= 0) {
+      tractorTimer = 15 + Math.random() * 14;
+      if (tractors.length === 0) {
+        for (let tries = 0; tries < 8; tries++) {
+          const r = Math.ceil(cam) + 4 + irand(9);
+          const row = rows.get(r);
+          if (!row || row.type !== 'grass' || row.dirt || row.dirtFull || row.trees.size < 2) continue;
+          const dir = Math.random() < 0.5 ? 1 : -1;
+          tractors.push({ row: r, dir, x: dir > 0 ? -2 : COLS + 2, speed: 1.35 });
+          events.push({ type: 'tractor', r });
+          break;
+        }
+      }
+    }
+    for (let i = tractors.length - 1; i >= 0; i--) {
+      const t = tractors[i];
+      const row = rows.get(t.row);
+      if (!row) { tractors.splice(i, 1); continue; }
+      t.x += t.dir * t.speed * dt;
+      // the blade flattens everything just ahead of and under the tractor
+      for (const c of [Math.floor(t.x), Math.floor(t.x + t.dir * 0.8)]) {
+        if (c < 0 || c >= COLS) continue;
+        if (row.trees.has(c)) {
+          row.trees.delete(c);
+          events.push({ type: 'treefall', r: t.row, c });
+        }
+        row.holes.delete(c); // filled in and paved over
+      }
+      row.dirt = { dir: t.dir, edge: t.x };
+      if ((t.dir > 0 && t.x > COLS + 2) || (t.dir < 0 && t.x < -2)) {
+        row.dirtFull = true;
+        delete row.dirt;
+        tractors.splice(i, 1);
+      }
     }
   }
 
@@ -100,15 +191,39 @@
     const top = cam + 18;
     for (let r = Math.max(0, Math.floor(cam) - 1); r <= top; r++) {
       const row = rows.get(r);
-      if (row && row.type === 'rainbow') {
-        for (const c of row.clouds) {
+      if (!row) continue;
+      const traffic = row.type === 'rainbow' ? row.clouds : row.type === 'road' ? row.cars : null;
+      if (traffic) {
+        for (const c of traffic) {
           c.x += row.dir * row.speed * dt;
           if (c.x < 0) c.x += row.L;
           else if (c.x >= row.L) c.x -= row.L;
         }
+      } else if (row.type === 'deer') {
+        if (row.deer.length === 0) {
+          row.timer -= dt;
+          if (row.timer <= 0) {
+            const n = 1 + irand(3);
+            for (let j = 0; j < n; j++) {
+              row.deer.push({ x: row.dir > 0 ? -0.5 - j * 1.4 : row.L + 0.5 + j * 1.4, w: 0.75 });
+            }
+            events.push({ type: 'gallop', r });
+          }
+        } else {
+          for (const d of row.deer) d.x += row.dir * row.speed * dt;
+          row.deer = row.deer.filter(d => d.x > -2 && d.x < row.L + 2);
+          if (row.deer.length === 0) row.timer = 3.5 + Math.random() * 5.5;
+        }
       }
     }
+    updateTractors(dt, cam);
   }
 
-  window.World = { PAD, reset, update, row: r => rows.get(r) };
+  function drainEvents() {
+    const e = events;
+    events = [];
+    return e;
+  }
+
+  window.World = { PAD, reset, update, row: r => rows.get(r), tractors: () => tractors, drainEvents };
 })();

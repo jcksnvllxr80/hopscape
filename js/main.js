@@ -64,7 +64,7 @@
   let specialCd = 0;
   // obstacles: airplanes (+ lingering contrails) and the idle-punishing eagle
   const TRAIL_LIFE = 8;
-  let planes = [], trails = [], planeTimer = 6, idleT = 0, eagleWarned = false;
+  let planes = [], trails = [], planeTimer = 6, idleT = 0, eagleWarned = false, honkCd = 0;
   const irand = n => Math.floor(Math.random() * n);
 
   let cam = -4, menuCam = -4, graceT = 0, score = 0, runCoins = 0;
@@ -88,7 +88,7 @@
     graceT = 0; score = 0; runCoins = 0; dieT = 0; shake = 0;
     specialCd = 0;
     planes = []; trails = []; planeTimer = 5 + Math.random() * 4;
-    idleT = 0; eagleWarned = false;
+    idleT = 0; eagleWarned = false; honkCd = 0;
     particles = [];
     ui.score.textContent = '0';
     ui.coins.textContent = '0';
@@ -147,6 +147,18 @@
       } else if (p.kind === 'poof') {
         ctx.fillStyle = 'rgba(255,255,255,' + (0.4 * k) + ')';
         ctx.beginPath(); ctx.arc(p.x, sy, 5 + (1 - k) * 9, 0, Math.PI * 2); ctx.fill();
+      } else if (p.kind === 'treefall') {
+        // a little tree tipping over and fading out
+        ctx.save();
+        ctx.translate(p.x, sy);
+        ctx.rotate((1 - k) * 1.5 * (p.spin || 1));
+        ctx.globalAlpha = Math.min(1, k * 1.6);
+        ctx.fillStyle = '#8a5a33';
+        ctx.fillRect(-4, -16, 8, 16);
+        ctx.fillStyle = '#47ab59';
+        ctx.beginPath(); ctx.arc(0, -26, 14, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.restore();
       } else if (p.kind === 'txt') {
         ctx.globalAlpha = Math.min(1, k * 2);
         ctx.font = '800 20px "Arial Rounded MT Bold", system-ui, sans-serif';
@@ -349,6 +361,19 @@
   }
 
   // ---------- game flow ----------
+  function drainWorldEvents() {
+    for (const ev of World.drainEvents()) {
+      if (ev.type === 'treefall') {
+        spawnP('treefall', (ev.c + 0.5) * T, rowFeetY(ev.r, state === 'menu' ? menuCam : cam), { life: 0.7, spin: Math.random() < 0.5 ? 1 : -1 });
+        Sfx.crunch();
+      } else if (ev.type === 'tractor') {
+        Sfx.tractor();
+      } else if (ev.type === 'gallop') {
+        if (state === 'play' && Math.abs(ev.r - chr.rowF) < 9) Sfx.gallop();
+      }
+    }
+  }
+
   function updatePlanes(dt) {
     for (const p of planes) p.x += p.dir * p.speed * dt;
     for (let i = planes.length - 1; i >= 0; i--) {
@@ -455,21 +480,43 @@
     if (idleT > 4.5 && !eagleWarned) { eagleWarned = true; Sfx.screech(); }
     if (idleT > 7.5) return die('eagle');
 
-    // rain cloud collision (checked against the hop-interpolated position);
-    // special moves are airborne mid-flight and pass safely over clouds
+    drainWorldEvents();
+
+    // moving hazard collision (checked against the hop-interpolated position);
+    // special moves are airborne mid-flight and pass safely over ground hazards
     const airSafe = chr.air && chr.hopping && chr.hopT > 0.06 && chr.hopT < 0.94;
     if (!airSafe) {
       const cx = chr.colF + 0.5;
       for (const r of [Math.floor(chr.rowF), Math.floor(chr.rowF) + 1]) {
         if (Math.abs(chr.rowF - r) > 0.45) continue;
         const row = World.row(r);
-        if (!row || row.type !== 'rainbow') continue;
-        for (const c of row.clouds) {
+        if (!row) continue;
+        const traffic = row.type === 'rainbow' ? [row.clouds, 'cloud']
+                      : row.type === 'road' ? [row.cars, 'car']
+                      : row.type === 'deer' ? [row.deer, 'deer'] : null;
+        if (!traffic) continue;
+        for (const c of traffic[0]) {
           const wx = c.x - World.PAD;
-          if (Math.abs(wx - cx) < (c.w / 2 + 0.3) * 0.9) return die('cloud');
+          if (Math.abs(wx - cx) < ((c.w || 0.8) / 2 + 0.3) * 0.9) return die(traffic[1]);
+        }
+      }
+      for (const tt of World.tractors()) {
+        if (Math.abs(chr.rowF - tt.row) < 0.5 && Math.abs(tt.x - cx) < 1.05) return die('tractor');
+      }
+    }
+
+    // a polite warning honk when a car is bearing down on you
+    if (honkCd > 0) honkCd -= dt;
+    else {
+      const rr = World.row(Math.round(chr.rowF));
+      if (rr && rr.type === 'road') {
+        for (const c of rr.cars) {
+          const gap = (c.x - World.PAD - (chr.colF + 0.5)) * (rr.dir > 0 ? -1 : 1);
+          if (gap > 0.8 && gap < 3) { Sfx.honk(); honkCd = 2.5; break; }
         }
       }
     }
+
     if (chr.rowF - cam < -0.85) return die('swept');
   }
 
@@ -485,9 +532,17 @@
       shake = 0.3;
       rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
       Sfx.splash();
-    } else if (cause === 'plane') {
+    } else if (cause === 'plane' || cause === 'tractor') {
       shake = 0.3;
       Sfx.crash();
+    } else if (cause === 'car') {
+      shake = 0.3;
+      Sfx.honk();
+      Sfx.crash();
+    } else if (cause === 'deer') {
+      shake = 0.25;
+      Sfx.gallop();
+      Sfx.bump();
     } else if (cause === 'hole') {
       spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam), { life: 0.35 });
       Sfx.fall();
@@ -507,6 +562,7 @@
     updatePlanes(dt);
     updateRockets(dt);
     updateParticles(dt);
+    drainWorldEvents();
     if (dieT > (deathCause === 'eagle' ? 1.4 : 0.95)) finishGameOver();
   }
 
@@ -524,6 +580,9 @@
       plane: ['Bonk! \u{2708}\u{FE0F}', 'An airplane zoomed right into you!'],
       eagle: ['Snatched! \u{1F985}', 'An eagle grabbed you for standing still too long!'],
       rocket: ['Blast off! \u{1F680}', 'You got caught in a spaceship launch!'],
+      car: ['Honk! \u{1F697}', 'A speedy car bumped right into you!'],
+      deer: ['Oof! \u{1F98C}', 'A bounding deer bowled you over!'],
+      tractor: ['Squish! \u{1F69C}', 'A tractor rolled right over you!'],
     };
     const info = OVER[deathCause] || OVER.swept;
     ui.goTitle.textContent = info[0];
@@ -586,6 +645,8 @@
       const y = H - (r - camY + 1) * T;
       const row = World.row(r);
       if (row && row.type === 'rainbow') Sprites.rainbowRow(ctx, y, row);
+      else if (row && row.type === 'road') Sprites.roadRow(ctx, y, row);
+      else if (row && row.type === 'deer') Sprites.deerRow(ctx, y, r, row);
       else Sprites.grassRow(ctx, y, r, row);
     }
 
@@ -610,12 +671,23 @@
             else Sprites.scorch(ctx, rx, ry);
           }
           if (row.trees) for (const c of row.trees) Sprites.tree(ctx, (c + 0.5) * T, y + T * 0.82, r * 31 + c * 7);
-        } else {
+        } else if (row.type === 'rainbow') {
           for (const c of row.clouds) {
             const cx = (c.x - World.PAD) * T;
             Sprites.cloudShadow(ctx, cx, y + T * 0.78, c.w);
             Sprites.cloud(ctx, cx, y + T * 0.42, c.w, tGlobal, c.seed, row.dir);
           }
+        } else if (row.type === 'road') {
+          for (const c of row.cars) {
+            Sprites.car(ctx, (c.x - World.PAD) * T, y + T * 0.66, c.w, c.kind, row.dir, tGlobal + c.seed);
+          }
+        } else if (row.type === 'deer') {
+          for (const d of row.deer) {
+            Sprites.deer(ctx, (d.x - World.PAD) * T, y + T * 0.72, row.dir);
+          }
+        }
+        for (const tt of World.tractors()) {
+          if (tt.row === r) Sprites.tractor(ctx, tt.x * T, y + T * 0.72, tt.dir, tGlobal);
         }
       }
       if (r === charRow && state !== 'menu') drawChar(camY);
@@ -750,7 +822,7 @@
       flip: chr.flip,
       lean: chr.hopping ? chr.lean * 0.6 : 0,
       air: chr.air && chr.hopping,
-      dead: chr.dead && (deathCause === 'cloud' || deathCause === 'plane'),
+      dead: chr.dead && ['cloud', 'plane', 'car', 'deer', 'tractor'].includes(deathCause),
       seed: 1.7,
     });
     if (chr.dead && deathCause === 'eagle') {
@@ -904,6 +976,8 @@
     else if (state === 'menu') {
       menuCam += dt * 0.45;
       World.update(dt, menuCam);
+      updateParticles(dt);
+      drainWorldEvents();
     }
     drawWorld(state === 'menu' ? menuCam : cam);
     if (state === 'menu') drawCards();
