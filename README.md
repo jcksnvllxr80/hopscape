@@ -1,8 +1,9 @@
 # Hopscape 🌈
 
-A cute Crossy Road-style hopping game. Pick your animal, hop across rainbow roads,
-dodge the grumpy rain clouds, weave around the trees, and grab coins on the grass —
-all while the storm creeps up behind you!
+A cute Crossy Road-style hopping game — now in full 3D! Pick your animal, hop across
+rainbow roads, dodge the grumpy rain clouds, weave around the trees, and grab coins
+on the grass — all while the storm creeps up behind you! Rendered with Three.js as a
+chunky low-poly toy world, with the exact same gameplay as the original 2D version.
 
 ## How to play
 
@@ -18,6 +19,7 @@ then visit http://localhost:4173)
 | Arrow keys / WASD | Hop (up, down, left, right) |
 | Space / Shift / ability button | Use your special move |
 | Tap or swipe (mobile) | Hop / hop in swipe direction |
+| Q / E (hold) | Glance 45° left / right in first- & third-person, snaps back on release |
 | Esc or P | Pause |
 | Enter | Start / play again |
 
@@ -44,6 +46,12 @@ before she falls!
 ### Rules
 
 - 🐱🐶🐰🦆 Choose Mittens, Biscuit, Clover, or Puddles on the title screen
+- 🎥 Prefer to be IN the action? The **Camera** button on the title screen cycles
+  three views: classic overhead, 🎬 **third-person** (a chase camera over your
+  animal's shoulder — a nice halfway house), and 👁 **first-person** (the world from
+  your animal's eyes, bobbing with every hop). Your pick is remembered. In the two
+  close-up views, hold **Q** or **E** to glance 45° left or right for oncoming
+  traffic — the camera swings back on its own when you let go
 - 🌈 Rainbow roads have **rain clouds** sliding across — touch one and you're soaked!
 - 🌳 Trees block your way on the grass — hop around them
 - 🕳️ **Holes** hide in the grass — hop into one and down you go! (Specials are smart
@@ -77,10 +85,12 @@ before she falls!
 |---|---|
 | `index.html` | The page, HUD, and menu/game-over/pause screens |
 | `css/style.css` | All the cute chunky UI styling |
-| `js/sprites.js` | Every drawing: the four animals, trees, coins, clouds, rainbows |
 | `js/world.js` | Level generation: grass/rainbow bands, tree & coin placement, cloud traffic |
 | `js/main.js` | Game loop, hopping, camera, collisions, score, input |
 | `js/sfx.js` | Little synthesized sound effects (mute button in the corner) |
+| `js/r3d/` | The 3D renderer: `core.js` (engine, camera, lighting, row cache) plus terrain, props, vehicles, creatures, animals, and fx modules — conventions documented in `js/r3d/CONTRACT.md` |
+| `js/vendor/three.js` | Three.js r185, vendored as a plain script so there's still no build step |
+| `js/sprites.js` | The original 2D canvas art (no longer loaded — kept as visual ground truth and for the iOS port) |
 
 ## Tuning the difficulty
 

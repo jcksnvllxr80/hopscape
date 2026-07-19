@@ -17,7 +17,7 @@
 
   const $ = id => document.getElementById(id);
   const canvas = $('game');
-  const ctx = canvas.getContext('2d');
+  R3D.init(canvas);
   const ui = {
     stage: $('stage'), hud: $('hud'), score: $('score'), coins: $('coin-count'),
     menu: $('menu'), over: $('gameover'), paused: $('paused'),
@@ -37,11 +37,7 @@
     ui.stage.style.width = cw + 'px';
     ui.stage.style.height = ch + 'px';
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(cw * dpr);
-    canvas.height = Math.round(ch * dpr);
-    canvas.style.width = cw + 'px';
-    canvas.style.height = ch + 'px';
-    ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    R3D.resize(cw, ch, dpr);
   }
   window.addEventListener('resize', resize);
   resize();
@@ -59,6 +55,10 @@
   let paused = false;
   let tGlobal = 0;
   let selected = store.get('hs_char', 0);
+  // camera mode: 'classic' | 'tp' (third-person chase) | 'fp' (first-person);
+  // hs_fp was the old boolean setting — migrate it forward once
+  let camMode = store.get('hs_cam', store.get('hs_fp', false) ? 'fp' : 'classic');
+  let peekL = false, peekR = false; // Q/E held: glance 45° left/right (fp/tp only)
   let best = store.get('hs_best', 0);
   let totalCoins = store.get('hs_coins', 0);
   let specialCd = 0;
@@ -72,7 +72,6 @@
 
   let cam = -4, menuCam = -4, graceT = 0, score = 0, runCoins = 0;
   let dieT = 0, deathCause = '', shake = 0;
-  let particles = [];
 
   const chr = {};
   function resetChr() {
@@ -92,7 +91,7 @@
     specialCd = 0;
     planes = []; trails = []; planeTimer = 5 + Math.random() * 4;
     idleT = 0; eagleState = 'none'; eagleT = 0; honkCd = 0;
-    particles = [];
+    R3D.fx.clear();
     ui.score.textContent = '0';
     ui.coins.textContent = '0';
   }
@@ -104,78 +103,9 @@
     return 0.115;
   }
 
-  // ---------- particles (world-anchored so they scroll with the camera) ----------
-  function camBase(c) { return H + c * T; }
-  function spawnP(kind, sx, sy, o) {
-    particles.push(Object.assign({ kind, x: sx, wy: camBase(cam) - sy, t: 0, vx: 0, vy: 0 }, o));
-  }
-  function coinBurst(sx, sy) {
-    for (let i = 0; i < 7; i++) {
-      const a = Math.random() * Math.PI * 2;
-      spawnP('spark', sx, sy, { vx: Math.cos(a) * 90, vy: -60 - Math.random() * 90, life: 0.5 });
-    }
-    spawnP('txt', sx, sy - 14, { life: 0.8, text: '+1' });
-  }
-  function rainBurst(sx, sy) {
-    for (let i = 0; i < 16; i++) {
-      const a = Math.random() * Math.PI * 2;
-      spawnP('drop', sx, sy - 15, { vx: Math.cos(a) * (60 + Math.random() * 120), vy: -80 - Math.random() * 140, life: 0.7 });
-    }
-  }
-  function updateParticles(dt) {
-    for (const p of particles) {
-      p.t += dt;
-      if (p.kind === 'spark' || p.kind === 'drop') {
-        p.vy += 500 * dt;
-        p.x += p.vx * dt;
-        p.wy -= p.vy * dt;
-      } else if (p.kind === 'txt') {
-        p.wy += 46 * dt;
-      } else if (p.kind === 'poof') {
-        p.wy += 12 * dt;
-      }
-    }
-    particles = particles.filter(p => p.t < p.life);
-  }
-  function drawParticles(camY) {
-    for (const p of particles) {
-      const sy = camBase(camY) - p.wy;
-      const k = 1 - p.t / p.life;
-      if (p.kind === 'spark') {
-        ctx.fillStyle = 'rgba(255,210,62,' + (0.9 * k) + ')';
-        ctx.beginPath(); ctx.arc(p.x, sy, 3.2, 0, Math.PI * 2); ctx.fill();
-      } else if (p.kind === 'drop') {
-        ctx.fillStyle = 'rgba(96,170,255,' + (0.9 * k) + ')';
-        ctx.beginPath(); ctx.arc(p.x, sy, 3, 0, Math.PI * 2); ctx.fill();
-      } else if (p.kind === 'poof') {
-        ctx.fillStyle = 'rgba(255,255,255,' + (0.4 * k) + ')';
-        ctx.beginPath(); ctx.arc(p.x, sy, 5 + (1 - k) * 9, 0, Math.PI * 2); ctx.fill();
-      } else if (p.kind === 'treefall') {
-        // a little tree tipping over and fading out
-        ctx.save();
-        ctx.translate(p.x, sy);
-        ctx.rotate((1 - k) * 1.5 * (p.spin || 1));
-        ctx.globalAlpha = Math.min(1, k * 1.6);
-        ctx.fillStyle = '#8a5a33';
-        ctx.fillRect(-4, -16, 8, 16);
-        ctx.fillStyle = '#47ab59';
-        ctx.beginPath(); ctx.arc(0, -26, 14, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.restore();
-      } else if (p.kind === 'txt') {
-        ctx.globalAlpha = Math.min(1, k * 2);
-        ctx.font = '800 20px "Arial Rounded MT Bold", system-ui, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#b57e0a';
-        ctx.strokeText(p.text, p.x, sy);
-        ctx.fillStyle = '#ffe9a8';
-        ctx.fillText(p.text, p.x, sy);
-        ctx.textAlign = 'left';
-        ctx.globalAlpha = 1;
-      }
-    }
-  }
+  // ---------- particles (simulated + rendered by R3D.fx; stepped ONLY from the
+  // existing updateParticles call sites so pause/menu freeze semantics survive) ----------
+  function updateParticles(dt) { R3D.fx.step(dt); }
 
   // ---------- movement ----------
   // is world-column-center cx currently over a log in this river row?
@@ -223,7 +153,7 @@
     chr.z0 = 0;
     chr.lean = dc;
     notifyMoved();
-    spawnP('poof', (chr.fromC + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
+    R3D.fx.poof(chr.fromC + 0.5, chr.row, 0, 0.3);
     Sfx.hop();
     function bumped() { chr.bump = { dr, dc, t: 0 }; Sfx.bump(); }
   }
@@ -278,7 +208,7 @@
     chr.hopH = h;
     chr.z0 = 0;
     chr.lean = 0;
-    spawnP('poof', (chr.fromC + 0.5) * T, rowFeetY(chr.row, cam), { life: 0.3 });
+    R3D.fx.poof(chr.fromC + 0.5, chr.row, 0, 0.3);
   }
 
   // bunny only: jump AGAIN off thin air, extending the current hop one more
@@ -327,7 +257,7 @@
     if (dc !== 0) chr.flip = dc < 0;
     notifyMoved();
     specialCd = ABILITY.bunny.cd;
-    spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam) - z0, { life: 0.3 });
+    R3D.fx.poof(chr.colF + 0.5, chr.rowF, z0 / 64, 0.3);
     Sfx.whoosh();
   }
 
@@ -371,7 +301,7 @@
           row.coins.delete(chr.col);
           runCoins++;
           ui.coins.textContent = runCoins;
-          coinBurst((chr.col + 0.5) * T, rowFeetY(chr.row, cam) - 20);
+          R3D.fx.coinBurst(chr.col + 0.5, chr.row);
           Sfx.coin();
         }
         if (chr.queued) {
@@ -410,7 +340,7 @@
   function drainWorldEvents() {
     for (const ev of World.drainEvents()) {
       if (ev.type === 'treefall') {
-        spawnP('treefall', (ev.c + 0.5) * T, rowFeetY(ev.r, state === 'menu' ? menuCam : cam), { life: 0.7, spin: Math.random() < 0.5 ? 1 : -1 });
+        R3D.fx.treefall(ev.c + 0.5, ev.r, Math.random() < 0.5 ? 1 : -1);
         Sfx.crunch();
       } else if (ev.type === 'tractor') {
         Sfx.tractor();
@@ -463,7 +393,7 @@
       } else if (rk.phase === 'arm') {
         rk.t += dt;
         if (Math.random() < dt * 14) {
-          spawnP('poof', (rk.c + 0.5) * T + (Math.random() - 0.5) * 26, rowFeetY(r, cam) + 4, { life: 0.4 });
+          R3D.fx.poof(rk.c + 0.5 + (Math.random() - 0.5) * 0.41, r, 0, 0.4);
         }
         if (rk.t > 1.6) { rk.phase = 'fly'; rk.t = 0; Sfx.launch(); }
       } else if (rk.phase === 'fly') {
@@ -489,7 +419,7 @@
     if (specialCd > 0) specialCd = Math.max(0, specialCd - dt);
     // dashing dog kicks up a dust trail
     if (chr.air && chr.hopping && Sprites.ANIMALS[selected].id === 'dog' && Math.random() < dt * 40) {
-      spawnP('poof', (chr.colF + 0.5) * T + (Math.random() - 0.5) * 20, rowFeetY(chr.rowF, cam) + 2, { life: 0.35 });
+      R3D.fx.poof(chr.colF + 0.5 + (Math.random() - 0.5) * 0.31, chr.rowF, 0, 0.35);
     }
     graceT += dt;
     if (graceT > 3) cam += Math.min(0.32 + score * 0.005, 0.95) * dt;
@@ -586,7 +516,7 @@
     dieT = 0;
     if (cause === 'cloud') {
       shake = 0.3;
-      rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
+      R3D.fx.rainBurst(chr.colF + 0.5, chr.rowF);
       Sfx.splash();
     } else if (cause === 'plane' || cause === 'tractor') {
       shake = 0.3;
@@ -600,17 +530,17 @@
       Sfx.gallop();
       Sfx.bump();
     } else if (cause === 'hole') {
-      spawnP('poof', (chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam), { life: 0.35 });
+      R3D.fx.poof(chr.colF + 0.5, chr.rowF, 0, 0.35);
       Sfx.fall();
     } else if (cause === 'water') {
       shake = 0.2;
-      rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
+      R3D.fx.rainBurst(chr.colF + 0.5, chr.rowF);
       Sfx.splash();
     } else if (cause === 'eagle') {
       Sfx.screech();
     } else if (cause === 'rocket') {
       shake = 0.35;
-      rainBurst((chr.colF + 0.5) * T, rowFeetY(chr.rowF, cam));
+      R3D.fx.rainBurst(chr.colF + 0.5, chr.rowF);
       Sfx.crash();
     }
   }
@@ -691,218 +621,52 @@
   }
 
   // ---------- rendering ----------
-  function rowFeetY(rf, camY) {
-    return H - (rf - camY + 1) * T + T * 0.74;
-  }
+  // ONE module-level frame object, mutated every tick — CONTRACT.md §4. The
+  // renderer reads world data itself (World.row / World.tractors); this frame
+  // carries game state + the FINISHED character pose (verbatim drawChar math).
+  const FRAME = { chr: {}, eagle: {} };
 
   function drawWorld(camY) {
-    ctx.save();
-    if (shake > 0) ctx.translate((Math.random() - 0.5) * 9 * (shake / 0.3), (Math.random() - 0.5) * 9 * (shake / 0.3));
-    const rBot = Math.floor(camY);
-    const rTop = Math.floor(camY + H / T) + 1;
-
-    // ground
-    for (let r = rBot; r <= rTop; r++) {
-      const y = H - (r - camY + 1) * T;
-      const row = World.row(r);
-      if (row && row.type === 'rainbow') Sprites.rainbowRow(ctx, y, row);
-      else if (row && row.type === 'road') Sprites.roadRow(ctx, y, row);
-      else if (row && row.type === 'deer') Sprites.deerRow(ctx, y, r, row);
-      else if (row && row.type === 'river') Sprites.riverRow(ctx, y, row);
-      else Sprites.grassRow(ctx, y, r, row);
-    }
-
-    // best-score marker line
-    if (best >= 3) {
-      const by = H - (best + 2 - camY + 1) * T;
-      if (by > -40 && by < H + 40) Sprites.bestLine(ctx, by, best);
-    }
-
-    // objects, far rows first so near things overlap them
-    const charRow = Math.floor(chr.rowF);
-    for (let r = rTop; r >= rBot; r--) {
-      const row = World.row(r);
-      const y = H - (r - camY + 1) * T;
-      if (row) {
-        if (row.type === 'grass') {
-          if (row.coins) for (const c of row.coins) Sprites.coin(ctx, (c + 0.5) * T, y + T * 0.52, tGlobal, c);
-          if (row.rocket) {
-            const rk = row.rocket;
-            const rx = (rk.c + 0.5) * T, ry = y + T * 0.82;
-            if (rk.phase === 'idle' || rk.phase === 'arm') Sprites.rocket(ctx, rx, ry, rk, tGlobal);
-            else Sprites.scorch(ctx, rx, ry);
-          }
-          if (row.trees) for (const c of row.trees) Sprites.tree(ctx, (c + 0.5) * T, y + T * 0.82, r * 31 + c * 7);
-        } else if (row.type === 'rainbow') {
-          for (const c of row.clouds) {
-            const cx = (c.x - World.PAD) * T;
-            Sprites.cloudShadow(ctx, cx, y + T * 0.78, c.w);
-            Sprites.cloud(ctx, cx, y + T * 0.42, c.w, tGlobal, c.seed, row.dir);
-          }
-        } else if (row.type === 'road') {
-          for (const c of row.cars) {
-            Sprites.car(ctx, (c.x - World.PAD) * T, y + T * 0.66, c.w, c.kind, row.dir, tGlobal + c.seed);
-          }
-        } else if (row.type === 'deer') {
-          for (const d of row.deer) {
-            Sprites.deer(ctx, (d.x - World.PAD) * T, y + T * 0.72, row.dir);
-          }
-        } else if (row.type === 'river') {
-          for (const l of row.logs) Sprites.riverLog(ctx, (l.x - World.PAD) * T, y + T * 0.62, l.w);
-          for (const c of row.pads) Sprites.lilypad(ctx, (c + 0.5) * T, y + T * 0.58, tGlobal, c);
-        }
-        for (const tt of World.tractors()) {
-          if (tt.row === r) Sprites.tractor(ctx, tt.x * T, y + T * 0.72, tt.dir, tGlobal);
-        }
-      }
-      if (r === charRow && state !== 'menu') drawChar(camY);
-    }
-
-    drawParticles(camY);
-
-    // ---- sky layer: launching rockets, contrails, airplanes, warnings, circling eagle ----
-    for (let r = rBot; r <= rTop; r++) {
-      const row = World.row(r);
-      if (row && row.rocket && row.rocket.phase === 'fly') {
-        const y = H - (r - camY + 1) * T;
-        Sprites.rocket(ctx, (row.rocket.c + 0.5) * T, y + T * 0.82, row.rocket, tGlobal);
-      }
-    }
-    const skyY = r => H - (r - camY + 1) * T + T * 0.38;
-    for (const l of trails) {
-      const y = skyY(l.row);
-      if (y < -30 || y > H + 30) continue;
-      const a = (1 - l.age / TRAIL_LIFE) * 0.5;
-      ctx.strokeStyle = 'rgba(255,255,255,' + a + ')';
-      ctx.lineWidth = 7;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(-10, y);
-      ctx.lineTo(W + 10, y);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,' + a * 0.7 + ')';
-      for (let px = 20; px < W; px += 56) {
-        ctx.beginPath();
-        ctx.arc(px + (l.row * 37 % 30), y, 6 + (px * 13 + l.row * 7) % 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    for (const p of planes) {
-      const y = skyY(p.row);
-      if (y < -40 || y > H + 40) continue;
-      const px = p.x * T;
-      // contrail streaming back to the edge it came from
-      const tail = px - p.dir * 42;
-      const edge = p.dir > 0 ? -20 : W + 20;
-      const g = ctx.createLinearGradient(edge, 0, tail, 0);
-      g.addColorStop(0, 'rgba(255,255,255,0.1)');
-      g.addColorStop(1, 'rgba(255,255,255,0.75)');
-      ctx.strokeStyle = g;
-      ctx.lineWidth = 7;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(edge, y);
-      ctx.lineTo(tail, y);
-      ctx.stroke();
-      if (px > -60 && px < W + 60) {
-        ctx.fillStyle = 'rgba(20,30,50,0.15)';
-        ctx.beginPath();
-        ctx.ellipse(px, y + T * 0.5, 30, 6, 0, 0, Math.PI * 2);
-        ctx.fill();
-        Sprites.plane(ctx, px, y, p.dir, tGlobal);
-      } else {
-        // incoming! flashing warning at the edge it will enter from
-        if (Math.sin(tGlobal * 12) > -0.3) {
-          const wx = p.dir > 0 ? 22 : W - 22;
-          ctx.fillStyle = '#ff5a5f';
-          ctx.beginPath();
-          ctx.arc(wx, y, 13, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#fff';
-          ctx.font = '900 18px "Arial Rounded MT Bold", system-ui, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('!', wx, y + 6);
-          ctx.textAlign = 'left';
-        }
-      }
-    }
-    if (state === 'play' && eagleState !== 'none') {
-      const px = (chr.colF + 0.5) * T;
-      const py = rowFeetY(chr.rowF, cam);
-      if (eagleState === 'active') {
-        // circling overhead — move or else!
-        ctx.fillStyle = 'rgba(0,0,0,' + (0.1 + 0.08 * Math.sin(tGlobal * 8)) + ')';
-        ctx.beginPath();
-        ctx.ellipse(px, py, 26 + Math.sin(tGlobal * 8) * 4, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
-        Sprites.eagle(ctx, px + Math.sin(tGlobal * 2.6) * 46, py - 165 - Math.sin(tGlobal * 5) * 9, tGlobal, false);
-      } else {
-        // flee: you dodged — it wings off to one side instead of vanishing
-        const k = Math.min(eagleT / 0.8, 1);
-        const ex = px + Math.sin(tGlobal * 2.6) * 46 * (1 - k) + eagleFleeDir * k * k * 520;
-        const ey = py - 165 - Math.sin(tGlobal * 5) * 9 * (1 - k) - k * k * 300;
-        Sprites.eagle(ctx, ex, ey, tGlobal, false);
-      }
-    }
-
-    // soft edge vignette
-    let g = ctx.createLinearGradient(0, 0, 60, 0);
-    g.addColorStop(0, 'rgba(20,45,20,0.18)');
-    g.addColorStop(1, 'rgba(20,45,20,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 60, H);
-    g = ctx.createLinearGradient(W, 0, W - 60, 0);
-    g.addColorStop(0, 'rgba(20,45,20,0.18)');
-    g.addColorStop(1, 'rgba(20,45,20,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(W - 60, 0, 60, H);
-
-    // danger glow when the storm is close behind
-    if (state === 'play') {
-      const dz = chr.rowF - camY;
-      if (dz < 2.2) {
-        const a = Math.min(1, (2.2 - dz) / 2.2) * (0.28 + 0.12 * Math.sin(tGlobal * 7));
-        const dg = ctx.createLinearGradient(0, H, 0, H - 150);
-        dg.addColorStop(0, 'rgba(255,60,60,' + a + ')');
-        dg.addColorStop(1, 'rgba(255,60,60,0)');
-        ctx.fillStyle = dg;
-        ctx.fillRect(0, H - 150, W, 150);
-      }
-    }
-    ctx.restore();
-  }
-
-  function drawChar(camY) {
-    const x = (chr.colF + 0.5) * T;
-    const y = rowFeetY(chr.rowF, camY);
-    let bx = 0, by = 0;
-    if (chr.bump) {
-      const k = Math.sin(Math.PI * chr.bump.t / 0.13) * 7;
-      bx = chr.bump.dc * k;
-      by = -chr.bump.dr * k;
-    }
+    FRAME.mode = state;
+    FRAME.paused = paused;
+    FRAME.t = tGlobal;
+    FRAME.camY = camY;
+    FRAME.shake = shake;
+    FRAME.best = best;
+    FRAME.score = score;
+    FRAME.selected = selected;
+    FRAME.camMode = camMode;
+    FRAME.peek = (peekR ? 1 : 0) - (peekL ? 1 : 0);
+    FRAME.graceT = graceT;
+    FRAME.planes = planes;
+    FRAME.trails = trails;
+    FRAME.eagle.state = eagleState;
+    FRAME.eagle.t = eagleT;
+    FRAME.eagle.fleeDir = eagleFleeDir;
+    const C = FRAME.chr;
+    C.id = Sprites.ANIMALS[selected].id;
+    C.colF = chr.colF;
+    C.rowF = chr.rowF;
+    // pose math verbatim from the retired drawChar (px; renderer divides by 64)
     const k = Math.min(chr.hopT, 1);
     let z = chr.hopping ? chr.z0 * (1 - k) + Math.sin(Math.PI * k) * chr.hopH : 0;
     if (chr.teeter != null && !chr.hopping) z = -6; // sinking into the hole rim!
+    if (chr.dead && deathCause === 'eagle') z += Math.max(0, dieT - 0.4) * 300; // carried away
+    C.z = z;
     let squash = 1;
     if (chr.hopping) squash = 1.06;
     else if (chr.squashT < 0.1) squash = 1 - 0.2 * Math.sin(Math.PI * chr.squashT / 0.1);
-    let shrink = null;
-    if (chr.dead && (deathCause === 'hole' || deathCause === 'water')) shrink = Math.max(0, 1 - dieT * 1.5);
-    if (chr.dead && deathCause === 'eagle') z += Math.max(0, dieT - 0.4) * 300; // carried away
-    Sprites.animal(ctx, Sprites.ANIMALS[selected].id, x + bx, y + by, {
-      t: tGlobal, z, squash, shrink,
-      flip: chr.flip,
-      lean: chr.hopping ? chr.lean * 0.6 : 0,
-      air: chr.air && chr.hopping,
-      dead: chr.dead && ['cloud', 'plane', 'car', 'deer', 'tractor'].includes(deathCause),
-      seed: 1.7,
-    });
-    if (chr.dead && deathCause === 'eagle') {
-      const dive = Math.min(dieT / 0.4, 1);
-      const ey = y - z - 52 - (1 - dive) * 480;
-      Sprites.eagle(ctx, x, ey, tGlobal, true);
-    }
+    C.squash = squash;
+    C.shrink = chr.dead && (deathCause === 'hole' || deathCause === 'water') ? Math.max(0, 1 - dieT * 1.5) : 1;
+    C.flip = chr.flip;
+    C.lean = chr.hopping ? chr.lean * 0.6 : 0;
+    C.air = chr.air && chr.hopping;
+    C.dead = chr.dead && ['cloud', 'plane', 'car', 'deer', 'tractor'].includes(deathCause);
+    C.teeter = chr.teeter;
+    C.bump = chr.bump;
+    C.deathCause = chr.dead ? deathCause : '';
+    C.dieT = dieT;
+    R3D.render(FRAME);
   }
 
   // ---------- character select cards ----------
@@ -939,21 +703,7 @@
     cardCanvases.forEach((c, j) => c.card.classList.toggle('selected', j === selected));
     $('ability-line').textContent = ABILITY[Sprites.ANIMALS[selected].id].desc;
   }
-  function drawCards() {
-    Sprites.ANIMALS.forEach((a, i) => {
-      const { c2 } = cardCanvases[i];
-      c2.setTransform(2, 0, 0, 2, 0, 0);
-      c2.clearRect(0, 0, 96, 104);
-      const sel = i === selected;
-      const bounce = sel ? Math.abs(Math.sin(tGlobal * 3.2)) * 8 : Math.abs(Math.sin(tGlobal * 2 + i * 1.3)) * 2.5;
-      c2.save();
-      c2.translate(48, 92);
-      const s = a.id === 'bunny' ? 1.05 : 1.28;
-      c2.scale(s, s);
-      Sprites.animal(c2, a.id, 0, 0, { t: tGlobal + i * 0.9, z: bounce, seed: i * 1.3 });
-      c2.restore();
-    });
-  }
+  function drawCards() { R3D.animals.drawCards(cardCanvases, tGlobal, selected); }
 
   // ---------- input ----------
   const KEYS = {
@@ -973,11 +723,17 @@
     } else if (state === 'play') {
       if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') togglePause();
       else if (!paused && (e.key === ' ' || e.key === 'Shift')) useSpecial();
+      else if (!paused && (e.key === 'q' || e.key === 'Q')) peekL = true;
+      else if (!paused && (e.key === 'e' || e.key === 'E')) peekR = true;
       else if (!paused && KEYS[e.key]) tryMove(KEYS[e.key][0], KEYS[e.key][1]);
     } else if (state === 'over') {
       if (e.key === 'Enter' || e.key === ' ') startGame();
       else if (e.key === 'Escape') toMenu();
     }
+  });
+  window.addEventListener('keyup', e => {
+    if (e.key === 'q' || e.key === 'Q') peekL = false;
+    else if (e.key === 'e' || e.key === 'E') peekR = false;
   });
 
   let touchStart = null;
@@ -1018,6 +774,22 @@
   }
 
   // buttons
+  const btnCamera = $('btn-camera');
+  const CAM_CYCLE = ['classic', 'tp', 'fp'];
+  const CAM_LABEL = { classic: '🎥 Camera: Classic', tp: '🎬 Camera: Third-Person', fp: '👁 Camera: First-Person' };
+  function refreshCameraBtn() {
+    btnCamera.textContent = CAM_LABEL[camMode] || CAM_LABEL.classic;
+  }
+  btnCamera.addEventListener('click', () => {
+    Sfx.unlock();
+    camMode = CAM_CYCLE[(CAM_CYCLE.indexOf(camMode) + 1) % CAM_CYCLE.length];
+    store.set('hs_cam', camMode);
+    refreshCameraBtn();
+    Sfx.select();
+    btnCamera.blur();
+  });
+  refreshCameraBtn();
+
   $('btn-play').addEventListener('click', () => { Sfx.unlock(); startGame(); });
   $('btn-retry').addEventListener('click', () => { Sfx.unlock(); startGame(); });
   $('btn-menu').addEventListener('click', toMenu);
@@ -1033,7 +805,10 @@
     $(id).addEventListener('click', () => { Sfx.unlock(); Sfx.toggleMute(); refreshMuteBtns(); });
   });
   refreshMuteBtns();
-  window.addEventListener('blur', () => { if (state === 'play') togglePause(true); });
+  window.addEventListener('blur', () => {
+    peekL = peekR = false; // a missed keyup while unfocused must not stick the peek
+    if (state === 'play') togglePause(true);
+  });
 
   // ---------- main loop ----------
   buildCards();
@@ -1043,6 +818,7 @@
     let dt = Math.min((now - last) / 1000, 0.05);
     last = now;
     if (document.hidden) dt = 0;
+    FRAME.dt = dt;
     tGlobal += dt;
     if (state === 'play' && !paused) updatePlay(dt);
     else if (state === 'dying') updateDying(dt);

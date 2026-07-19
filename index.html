@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Hopscape 🌈</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌈</text></svg>">
-<link rel="stylesheet" href="css/style.css?v=12">
+<link rel="stylesheet" href="css/style.css?v=15">
 </head>
 <body>
 
@@ -42,7 +42,10 @@
       <div id="cards"></div>
       <p id="ability-line" class="ability-line"></p>
       <button id="btn-play" class="big-btn">▶ Play</button>
+      <br>
+      <button id="btn-camera" class="small-btn" title="Toggle camera view">🎥 Camera: Classic</button>
       <p class="help">Arrow keys / WASD / swipe to hop &nbsp;•&nbsp; SPACE for your special move<br>
+      Q / E to glance left &amp; right in first- &amp; third-person<br>
       Mind the holes 🕳️ and airplanes ✈️ &nbsp;•&nbsp; keep moving, eagles are watching! 🦅</p>
       <p class="stats">🏆 Best <b id="menu-best">0</b> &nbsp;·&nbsp; 🪙 <b id="menu-coins">0</b></p>
     </div>
@@ -74,9 +77,16 @@
   </div>
 </div>
 
-<script src="js/sfx.js?v=12"></script>
-<script src="js/sprites.js?v=12"></script>
-<script src="js/world.js?v=12"></script>
-<script src="js/main.js?v=12"></script>
+<script src="js/vendor/three.js?v=15"></script>
+<script src="js/sfx.js?v=15"></script>
+<script src="js/r3d/core.js?v=15"></script>
+<script src="js/r3d/terrain.js?v=15"></script>
+<script src="js/r3d/props.js?v=15"></script>
+<script src="js/r3d/vehicles.js?v=15"></script>
+<script src="js/r3d/creatures.js?v=15"></script>
+<script src="js/r3d/animals.js?v=15"></script>
+<script src="js/r3d/fx.js?v=15"></script>
+<script src="js/world.js?v=15"></script>
+<script src="js/main.js?v=15"></script>
 </body>
 </html>
